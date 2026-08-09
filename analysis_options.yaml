@@ -1,0 +1,65 @@
+# Static analysis for E-Lista.
+#
+# The defaults are tightened in two directions that matter for a store app handling other
+# people's money: anything that can silently swallow an error is an error here, and the
+# type system is asked to be as strict as it can be.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+
+  errors:
+    # A dropped Future is a lost Firestore write or an unawaited navigation.
+    unawaited_futures: error
+    # Silently ignoring a failure is the failure mode this app must not have.
+    avoid_catches_without_on_clauses: ignore
+    # Dead code and unused elements accumulate into confusion; fail the build.
+    unused_import: error
+    unused_local_variable: error
+    unused_element: error
+    dead_code: error
+    # TODOs are allowed in comments but never as a substitute for an implementation.
+    todo: ignore
+
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - "build/**"
+
+linter:
+  rules:
+    # --- correctness ---------------------------------------------------------
+    always_declare_return_types: true
+    avoid_dynamic_calls: true
+    avoid_slow_async_io: true
+    cancel_subscriptions: true
+    close_sinks: true
+    comment_references: true
+    literal_only_boolean_expressions: true
+    no_adjacent_strings_in_list: true
+    test_types_in_equals: true
+    throw_in_finally: true
+    unawaited_futures: true
+    unnecessary_statements: true
+    # --- money and precision -------------------------------------------------
+    # Financial code should never lean on implicit numeric conversion.
+    avoid_double_and_int_checks: true
+    # --- style ---------------------------------------------------------------
+    always_use_package_imports: false
+    prefer_single_quotes: true
+    prefer_final_locals: true
+    prefer_final_in_for_each: true
+    directives_ordering: true
+    sort_child_properties_last: true
+    require_trailing_commas: true
+    unnecessary_parenthesis: true
+    unnecessary_lambdas: true
+    use_string_buffers: true
+    # --- Flutter -------------------------------------------------------------
+    avoid_unnecessary_containers: true
+    sized_box_for_whitespace: true
+    use_colored_box: true
+    use_decorated_box: true

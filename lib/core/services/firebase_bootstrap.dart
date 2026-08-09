@@ -1,0 +1,160 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
+
+import '../../firebase_options.dart';
+import '../config/app_config.dart';
+import '../errors/app_failure.dart';
+
+/// The result of starting Firebase up.
+///
+/// Startup is allowed to fail without taking the app down: the shell renders, shows what
+/// went wrong in plain language, and offers Retry. A store whose phone briefly has no
+/// signal should see "we could not reach the store" rather than a blank screen.
+sealed class BootstrapResult {
+  const BootstrapResult();
+}
+
+/// Firebase is up and every service is pointed at the right backend.
+class BootstrapSuccess extends BootstrapResult {
+  const BootstrapSuccess({required this.usingEmulator});
+
+  /// True when the app is talking to the local emulator suite rather than a real project.
+  final bool usingEmulator;
+}
+
+/// Firebase could not be started.
+class BootstrapFailure extends BootstrapResult {
+  const BootstrapFailure(this.failure);
+
+  final AppFailure failure;
+}
+
+/// Starts Firebase exactly once and wires the SDKs to the configured backend.
+///
+/// Everything environment-specific lives here: whether to use emulators, what offline
+/// behaviour Firestore has, and how long a callable may run. No other file calls
+/// `Firebase.initializeApp`, so swapping in a real project is a one-file change.
+abstract final class FirebaseBootstrap {
+  static bool _initialised = false;
+
+  /// True once [ensureInitialised] has completed successfully.
+  static bool get isInitialised => _initialised;
+
+  /// Initialises Firebase, or returns a [BootstrapFailure] describing why it could not.
+  ///
+  /// Calling this twice is safe; the second call returns immediately.
+  static Future<BootstrapResult> ensureInitialised() async {
+    if (_initialised) {
+      return BootstrapSuccess(usingEmulator: AppConfig.useFirebaseEmulator);
+    }
+
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+
+      if (AppConfig.useFirebaseEmulator) {
+        await _connectEmulators();
+      }
+
+      _configureFirestore();
+
+      _initialised = true;
+      return BootstrapSuccess(usingEmulator: AppConfig.useFirebaseEmulator);
+    } on FirebaseNotConfiguredError catch (error, stackTrace) {
+      // A build-time mistake, not a runtime condition: say exactly what to do.
+      return BootstrapFailure(
+        AppFailure(
+          message:
+              'This build has no Firebase project configured. '
+              'Run it with --dart-define=USE_FIREBASE_EMULATOR=true, or connect a '
+              'project with `flutterfire configure`.',
+          code: 'firebase-not-configured',
+          cause: error,
+          stackTrace: stackTrace,
+        ),
+      );
+    } catch (error, stackTrace) {
+      return BootstrapFailure(
+        AppFailure(
+          message:
+              'We could not start the app. '
+              'Check your connection and try again.',
+          severity: FailureSeverity.transient,
+          code: 'bootstrap-failed',
+          cause: error,
+          stackTrace: stackTrace,
+        ),
+      );
+    }
+  }
+
+  static Future<void> _connectEmulators() async {
+    final host = AppConfig.emulatorHost;
+
+    // Auth must be pointed at the emulator before any sign-in call is made.
+    await FirebaseAuth.instance.useAuthEmulator(
+      host,
+      AppConfig.authEmulatorPort,
+    );
+
+    FirebaseFirestore.instance.useFirestoreEmulator(
+      host,
+      AppConfig.firestoreEmulatorPort,
+    );
+
+    FirebaseFunctions.instance.useFunctionsEmulator(
+      host,
+      AppConfig.functionsEmulatorPort,
+    );
+
+    await FirebaseStorage.instance.useStorageEmulator(
+      host,
+      AppConfig.storageEmulatorPort,
+    );
+
+    debugPrint(
+      'E-Lista is using the Firebase emulator suite at $host. '
+      'Data here is local and disposable.',
+    );
+  }
+
+  static void _configureFirestore() {
+    // Local persistence is what makes the catalog readable on a weak signal: products
+    // already seen render from cache while the network call is still in flight.
+    //
+    // It is safe for reads. It is *not* what makes writes safe — orders, stock and prices
+    // all go through callable functions, which fail loudly when offline rather than
+    // queueing a write that would be applied against stale stock.
+    FirebaseFirestore.instance.settings = const Settings(
+      persistenceEnabled: true,
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+    );
+  }
+
+  /// A callable bound to the app's timeout.
+  ///
+  /// Every callable goes through here so none of them can be created with the SDK's
+  /// 60-second default: a shopkeeper waiting on a scanner will not wait a minute, and a
+  /// call that overruns should surface as a retryable timeout instead.
+  static HttpsCallable callable(String name, {Duration? timeout}) {
+    return FirebaseFunctions.instance.httpsCallable(
+      name,
+      options: HttpsCallableOptions(
+        timeout: timeout ?? AppConfig.backendTimeout,
+      ),
+    );
+  }
+
+  /// Resets the initialised flag. Tests only.
+  @visibleForTesting
+  static void resetForTesting() {
+    _initialised = false;
+  }
+}

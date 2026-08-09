@@ -1,0 +1,27 @@
+rules_version = '2';
+
+// Product images are public to read (the customer catalog shows them) and writable only
+// by the owner. Size and content-type are constrained so a compromised client cannot use
+// the bucket as free storage.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isOwner() {
+      return request.auth != null && request.auth.token.role == 'owner';
+    }
+
+    function isImageUnder(maxBytes) {
+      return request.resource.contentType.matches('image/.*')
+             && request.resource.size < maxBytes;
+    }
+
+    match /products/{productId}/{fileName} {
+      allow read: if true;
+      allow write: if isOwner() && isImageUnder(5 * 1024 * 1024);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
