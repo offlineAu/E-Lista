@@ -6,6 +6,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 // `firebase_auth` re-exports `FirebaseException` from `firebase_core`, which is the base
 // type every Firestore, Storage and Functions error extends.
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import 'app_failure.dart';
 
@@ -164,49 +165,42 @@ abstract final class ErrorMapper {
     StackTrace stackTrace,
     String operation,
   ) {
-    // Callable functions raise `failed-precondition` and `invalid-argument` with a message
-    // already written for the user — out of stock, price changed, tier overlap. Those are
-    // passed through verbatim; anything else gets a generic message.
+    // Every callable in this app throws with a message already written for the user — out
+    // of stock, price changed, tier overlap, setup code not correct. So the server's own
+    // message is always the most specific thing we can show: it is passed through verbatim
+    // whenever it exists, and the fallbacks below only apply when it is absent.
     final serverMessage = error.message?.trim();
     final hasUsableMessage =
         serverMessage != null &&
         serverMessage.isNotEmpty &&
         serverMessage != 'INTERNAL';
 
-    final (fallback, severity) = switch (error.code) {
-      'unauthenticated' => (
-        'Please sign in and try again.',
-        FailureSeverity.permanent,
-      ),
-      'permission-denied' => (
-        'You do not have permission to do that.',
-        FailureSeverity.permanent,
-      ),
-      'not-found' => (
-        'That item could not be found. It may have been removed.',
-        FailureSeverity.permanent,
-      ),
-      'failed-precondition' || 'invalid-argument' || 'aborted' => (
+    final fallback = switch (error.code) {
+      'unauthenticated' => 'Please sign in and try again.',
+      'permission-denied' => 'You do not have permission to do that.',
+      'not-found' =>
+        'That request could not be handled. It may not be available yet.',
+      'failed-precondition' || 'invalid-argument' || 'aborted' =>
         'We could not complete this. Please review the details and try again.',
-        FailureSeverity.userCorrectable,
-      ),
-      'resource-exhausted' => (
+      'resource-exhausted' =>
         'The store is busy right now. Please try again in a moment.',
-        FailureSeverity.transient,
-      ),
-      'deadline-exceeded' || 'unavailable' => (
+      'deadline-exceeded' || 'unavailable' =>
         'We could not reach the store right now. Please try again.',
-        FailureSeverity.transient,
-      ),
-      _ => (
-        'Something went wrong while we tried to $operation. Please try again.',
-        FailureSeverity.permanent,
-      ),
+      _ =>
+        'Something went wrong while we tried to $operation '
+            '(${error.code}). Please try again.',
     };
 
-    final userCorrectable = severity == FailureSeverity.userCorrectable;
+    final severity = switch (error.code) {
+      'permission-denied' || 'unauthenticated' || 'not-found' =>
+        FailureSeverity.permanent,
+      'resource-exhausted' || 'deadline-exceeded' || 'unavailable' =>
+        FailureSeverity.transient,
+      _ => FailureSeverity.userCorrectable,
+    };
+
     return AppFailure(
-      message: (hasUsableMessage && userCorrectable) ? serverMessage : fallback,
+      message: hasUsableMessage ? serverMessage : fallback,
       severity: severity,
       code: error.code,
       cause: error,
@@ -292,6 +286,14 @@ abstract final class ErrorMapper {
       },
       error: error,
       stackTrace: stackTrace,
+    );
+
+    // `developer.log` goes to the VM service stream, which nothing is listening to outside
+    // DevTools — it never reaches `adb logcat` or the `flutter run` console. `debugPrint`
+    // does, which is the only reason to duplicate the line here: so the failing code is
+    // visible wherever the app's other native logs already are.
+    debugPrint(
+      'e_lista: failed to $operation — code=${failure.code} cause=$error',
     );
   }
 }

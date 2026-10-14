@@ -124,6 +124,29 @@ class OrderRepository {
         .map((snapshot) => snapshot.docs.length);
   }
 
+  /// Completed orders within a half-open range `[from, to)`.
+  ///
+  /// `sales/{orderId}` carries only order-level totals — no per-product lines — so
+  /// best-sellers and reorder suggestions read the orders themselves and aggregate
+  /// [StoreOrder.items] client-side instead.
+  Future<List<StoreOrder>> fetchCompletedBetween(DateTime from, DateTime to) {
+    return ErrorMapper.guard(
+      () async {
+        final snapshot = await _orders
+            .where('status', isEqualTo: OrderStatus.completed.name)
+            .where(
+              'completedAt',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(from),
+            )
+            .where('completedAt', isLessThan: Timestamp.fromDate(to))
+            .get();
+        return snapshot.docs.map(StoreOrder.fromFirestore).toList();
+      },
+      operation: 'load completed orders',
+      timeout: AppConfig.backendTimeout,
+    );
+  }
+
   /// One page of the owner's order history.
   Future<List<StoreOrder>> fetchPage({
     DocumentSnapshot<Map<String, Object?>>? startAfter,

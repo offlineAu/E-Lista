@@ -33,12 +33,18 @@ abstract final class AppRoutes {
   static const String ownerPriceHistory =
       '/owner/products/:productId/price-history';
   static const String ownerStorePriceHistory = '/owner/price-history';
+  static const String ownerProductBatches =
+      '/owner/products/:productId/batches';
   static const String ownerInventory = '/owner/inventory';
   static const String ownerInventoryHistory = '/owner/inventory/history';
+  static const String ownerExpiringBatches = '/owner/inventory/expiring';
   static const String ownerScanRestock = '/owner/scan-restock';
   static const String ownerOrders = '/owner/orders';
   static const String ownerOrderDetails = '/owner/orders/:orderId';
+  static const String ownerPosCheckout = '/owner/pos';
+  static const String ownerShiftSummary = '/owner/pos/shift-summary';
   static const String ownerSales = '/owner/sales';
+  static const String ownerBestSellers = '/owner/sales/best-sellers';
   static const String ownerReports = '/owner/reports';
   static const String ownerPricingSettings = '/owner/settings/pricing';
   static const String ownerGcashFees = '/owner/settings/gcash-fees';
@@ -59,6 +65,9 @@ abstract final class AppRoutes {
   static String ownerPriceHistoryFor(String productId) =>
       '/owner/products/$productId/price-history';
 
+  static String ownerProductBatchesFor(String productId) =>
+      '/owner/products/$productId/batches';
+
   static String ownerOrderDetailsFor(String orderId) =>
       '/owner/orders/$orderId';
 
@@ -70,4 +79,22 @@ abstract final class AppRoutes {
       !location.startsWith('/owner') && !preSessionRoutes.contains(location);
 
   static bool isOwnerRoute(String location) => location.startsWith('/owner');
+
+  /// Owner routes a cashier may also reach: processing orders and viewing stock. Nothing
+  /// that shows cost or profit, changes a price, or manages staff. Deliberately an
+  /// allowlist, not "everything under `/owner` except a denylist" — a newly added owner
+  /// route defaults to *not* cashier-visible until someone opts it in here.
+  static const Set<String> cashierAllowedOwnerRoutes = {
+    ownerOrders,
+    ownerInventory,
+    ownerInventoryHistory,
+    ownerExpiringBatches,
+    ownerPosCheckout,
+    ownerShiftSummary,
+  };
+
+  static bool isCashierAllowedRoute(String location) {
+    if (cashierAllowedOwnerRoutes.contains(location)) return true;
+    return location.startsWith('$ownerOrders/'); // /owner/orders/:orderId
+  }
 }

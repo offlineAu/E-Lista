@@ -14,10 +14,9 @@ import '../../pricing/domain/pricing_engine.dart';
 
 /// The store's default profit percentage, and an explanation of what it does.
 ///
-/// The two formulas are genuinely different and the difference is the point, so the screen
-/// works through a live example rather than stating the rule. An owner who can see that
-/// ₱15 at 20% becomes ₱18 in cash and ₱18.75 on GCash understands the setting; one who
-/// reads "markup versus margin" mostly does not.
+/// Cash and GCash share the same markup, so the screen works through a live example rather
+/// than stating the rule: an owner who can see that ₱15 at 20% becomes ₱18 either way
+/// understands the setting immediately.
 class PricingSettingsScreen extends ConsumerStatefulWidget {
   const PricingSettingsScreen({super.key});
 
@@ -197,12 +196,11 @@ class _Body extends StatelessWidget {
           const SizedBox(height: 12),
           _RuleCard(
             theme: theme,
-            title: 'GCash uses a true margin',
+            title: 'GCash prices the same way',
             body:
-                'The percentage is the share of the selling price that is '
-                'profit, so the price is your cost divided by what is left. '
-                '₱15 at 20% is ₱18.75, of which exactly ₱3.75 is yours. '
-                'Centavos are kept, because a transfer is exact.',
+                'GCash and cash use the same markup, so the per-product price is '
+                'the same either way. ₱15 at 20% is ₱18 for both. The GCash '
+                'convenience fee is then added once per order.',
             icon: Icons.account_balance_wallet_outlined,
           ),
           const SizedBox(height: 12),

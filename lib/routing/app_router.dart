@@ -14,6 +14,8 @@ import '../features/customer/presentation/home_screen.dart';
 import '../features/customer/presentation/profile_screen.dart';
 import '../features/orders/presentation/order_details_screen.dart';
 import '../features/orders/presentation/order_history_screen.dart';
+import '../features/owner/presentation/best_sellers_screen.dart';
+import '../features/owner/presentation/expiring_batches_screen.dart';
 import '../features/owner/presentation/gcash_fee_settings_screen.dart';
 import '../features/owner/presentation/inventory_history_screen.dart';
 import '../features/owner/presentation/owner_dashboard_screen.dart';
@@ -24,11 +26,14 @@ import '../features/owner/presentation/owner_products_screen.dart';
 import '../features/owner/presentation/owner_sales_screen.dart';
 import '../features/owner/presentation/owner_settings_screen.dart';
 import '../features/owner/presentation/owner_shell.dart';
+import '../features/owner/presentation/pos_checkout_screen.dart';
 import '../features/owner/presentation/price_history_screen.dart';
 import '../features/owner/presentation/pricing_settings_screen.dart';
+import '../features/owner/presentation/product_batches_screen.dart';
 import '../features/owner/presentation/product_form_screen.dart';
 import '../features/owner/presentation/product_import_screen.dart';
 import '../features/owner/presentation/scan_restock_screen.dart';
+import '../features/owner/presentation/shift_summary_screen.dart';
 import '../features/products/presentation/categories_screen.dart';
 import '../features/products/presentation/customer_scan_screen.dart';
 import '../features/products/presentation/product_details_screen.dart';
@@ -89,33 +94,63 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       // Still working out who this is: hold on the splash.
       if (session.isLoading || !session.hasValue) {
+        debugPrint(
+          'e_lista: router redirect — location=$location session=loading/no-value '
+          '(isLoading=${session.isLoading} hasValue=${session.hasValue})',
+        );
         return location == AppRoutes.splash ? null : AppRoutes.splash;
       }
 
       final current = session.valueOrNull;
       if (current == null) {
+        debugPrint(
+          'e_lista: router redirect — location=$location session=null-user',
+        );
         return location == AppRoutes.splash ? null : AppRoutes.splash;
       }
 
       final isOwner = current.isOwner;
+      final isCashier = current.isCashier;
+      const entryScreens = {
+        AppRoutes.welcome,
+        AppRoutes.login,
+        AppRoutes.register,
+      };
+
+      debugPrint(
+        'e_lista: router redirect — location=$location uid=${current.uid} '
+        'role=${current.role} isOwner=$isOwner isCashier=$isCashier',
+      );
 
       // A session exists, so the splash has done its job.
       if (location == AppRoutes.splash) {
-        return isOwner ? AppRoutes.ownerDashboard : AppRoutes.home;
+        if (isOwner) return AppRoutes.ownerDashboard;
+        if (isCashier) return AppRoutes.ownerOrders;
+        return AppRoutes.home;
       }
 
-      if (isOwner && !AppRoutes.isOwnerRoute(location)) {
-        // The owner may still use the shopper screens deliberately; only bounce them off
-        // the entry screens, which are meaningless once signed in.
-        if (location == AppRoutes.welcome ||
-            location == AppRoutes.login ||
-            location == AppRoutes.register) {
-          return AppRoutes.ownerDashboard;
-        }
+      if (isOwner) {
+        // The owner may use owner screens and shopper screens alike; only bounce them off
+        // the entry screens, which are meaningless once signed in. Returning null here for
+        // an owner route matters: falling through to the generic "not an owner route"
+        // bounce below would otherwise send the owner themselves back to the shelves.
+        if (entryScreens.contains(location)) return AppRoutes.ownerDashboard;
         return null;
       }
 
-      if (!isOwner && AppRoutes.isOwnerRoute(location)) {
+      if (isCashier) {
+        if (entryScreens.contains(location)) return AppRoutes.ownerOrders;
+        if (AppRoutes.isOwnerRoute(location) &&
+            !AppRoutes.isCashierAllowedRoute(location)) {
+          // Bounced off the dashboard, products, sales, settings, price history and
+          // scan-restock — everything that shows a margin, changes a price, or adds staff.
+          return AppRoutes.ownerOrders;
+        }
+        // Same courtesy as the owner: the cashier may still browse shopper screens.
+        return null;
+      }
+
+      if (AppRoutes.isOwnerRoute(location)) {
         return AppRoutes.home;
       }
 
@@ -204,7 +239,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       // ------------------------------------------------------------- owner
       //
-      // Inside the shell: the four rail destinations.
+      // Inside the shell: the owner's four rail destinations plus Inventory, which is a
+      // cashier destination — it has to be a shell route too, or picking it from the
+      // cashier's bottom nav drops them clean out of the shell (no bar, no other tab).
       ShellRoute(
         builder: (context, state, child) => OwnerShell(child: child),
         routes: [
@@ -223,6 +260,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: AppRoutes.ownerSales,
             builder: (context, state) => const OwnerSalesScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.ownerInventory,
+            builder: (context, state) => const OwnerInventoryScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.ownerPosCheckout,
+            builder: (context, state) => const PosCheckoutScreen(),
           ),
         ],
       ),
@@ -259,6 +304,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             PriceHistoryScreen(productId: state.pathParameters['productId']),
       ),
       GoRoute(
+        path: AppRoutes.ownerProductBatches,
+        builder: (context, state) =>
+            ProductBatchesScreen(productId: state.pathParameters['productId']!),
+      ),
+      GoRoute(
         path: AppRoutes.ownerStorePriceHistory,
         builder: (context, state) => const PriceHistoryScreen(),
       ),
@@ -267,12 +317,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const ScanRestockScreen(),
       ),
       GoRoute(
-        path: AppRoutes.ownerInventory,
-        builder: (context, state) => const OwnerInventoryScreen(),
-      ),
-      GoRoute(
         path: AppRoutes.ownerInventoryHistory,
         builder: (context, state) => const InventoryHistoryScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.ownerExpiringBatches,
+        builder: (context, state) => const ExpiringBatchesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.ownerBestSellers,
+        builder: (context, state) => const BestSellersScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.ownerShiftSummary,
+        builder: (context, state) => const ShiftSummaryScreen(),
       ),
       GoRoute(
         path: AppRoutes.ownerOrderDetails,
@@ -309,6 +367,17 @@ class _RouteNotFoundScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isOwner = ref.watch(isOwnerProvider);
+    final isCashier = ref.watch(isCashierProvider);
+    final landingRoute = isOwner
+        ? AppRoutes.ownerDashboard
+        : isCashier
+        ? AppRoutes.ownerOrders
+        : AppRoutes.home;
+    final landingLabel = isOwner
+        ? 'Go to dashboard'
+        : isCashier
+        ? 'Go to orders'
+        : 'Go to the store';
     return Scaffold(
       appBar: AppBar(title: const Text('Page not found')),
       body: Center(
@@ -331,10 +400,8 @@ class _RouteNotFoundScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 20),
               FilledButton(
-                onPressed: () => context.go(
-                  isOwner ? AppRoutes.ownerDashboard : AppRoutes.home,
-                ),
-                child: Text(isOwner ? 'Go to dashboard' : 'Go to the store'),
+                onPressed: () => context.go(landingRoute),
+                child: Text(landingLabel),
               ),
             ],
           ),

@@ -46,6 +46,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     if (!mounted) return;
     if (!ref.read(authControllerProvider).hasError) {
+      // The router's redirect reads authSessionProvider synchronously the instant
+      // context.go below fires. Signing in does not by itself rebuild that cached
+      // session, so without this the redirect can still see the old role and land an
+      // owner on the customer shelves — which its own "let an owner browse deliberately"
+      // rule then never corrects, since arriving there no longer counts as an entry
+      // screen. See profile_screen.dart's _claimStore for the same fix, first found there.
+      final _ = await ref.refresh(authSessionProvider.future);
+      if (!mounted) return;
       // The router sends an owner to the dashboard and a customer to the shelves.
       context.go(AppRoutes.splash);
     }

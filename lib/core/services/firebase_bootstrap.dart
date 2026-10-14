@@ -55,9 +55,16 @@ abstract final class FirebaseBootstrap {
     }
 
     try {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
+      // `_initialised` alone does not survive a hot restart: that wipes Dart's isolate
+      // state but leaves the native side's Firebase app registered from before the
+      // restart, so calling initializeApp() again throws `core/duplicate-app`.
+      // `Firebase.apps` reflects the native registry directly, so checking it first
+      // makes this call idempotent across a hot restart, not just within one Dart run.
+      if (Firebase.apps.isEmpty) {
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+      }
 
       if (AppConfig.useFirebaseEmulator) {
         await _connectEmulators();
@@ -67,20 +74,10 @@ abstract final class FirebaseBootstrap {
 
       _initialised = true;
       return BootstrapSuccess(usingEmulator: AppConfig.useFirebaseEmulator);
-    } on FirebaseNotConfiguredError catch (error, stackTrace) {
-      // A build-time mistake, not a runtime condition: say exactly what to do.
-      return BootstrapFailure(
-        AppFailure(
-          message:
-              'This build has no Firebase project configured. '
-              'Run it with --dart-define=USE_FIREBASE_EMULATOR=true, or connect a '
-              'project with `flutterfire configure`.',
-          code: 'firebase-not-configured',
-          cause: error,
-          stackTrace: stackTrace,
-        ),
-      );
     } catch (error, stackTrace) {
+      // Unlike ErrorMapper.guard, nothing has logged this yet — this is the one failure
+      // that happens before any of that machinery exists.
+      debugPrint('e_lista: failed to start Firebase — cause=$error');
       return BootstrapFailure(
         AppFailure(
           message:
@@ -109,10 +106,11 @@ abstract final class FirebaseBootstrap {
       AppConfig.firestoreEmulatorPort,
     );
 
-    FirebaseFunctions.instance.useFunctionsEmulator(
-      host,
-      AppConfig.functionsEmulatorPort,
-    );
+    FirebaseFunctions.instanceFor(region: AppConfig.functionsRegion)
+        .useFunctionsEmulator(
+          host,
+          AppConfig.functionsEmulatorPort,
+        );
 
     await FirebaseStorage.instance.useStorageEmulator(
       host,
@@ -144,7 +142,9 @@ abstract final class FirebaseBootstrap {
   /// 60-second default: a shopkeeper waiting on a scanner will not wait a minute, and a
   /// call that overruns should surface as a retryable timeout instead.
   static HttpsCallable callable(String name, {Duration? timeout}) {
-    return FirebaseFunctions.instance.httpsCallable(
+    return FirebaseFunctions.instanceFor(
+      region: AppConfig.functionsRegion,
+    ).httpsCallable(
       name,
       options: HttpsCallableOptions(
         timeout: timeout ?? AppConfig.backendTimeout,

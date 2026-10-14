@@ -37,7 +37,7 @@ async function ownerExists(): Promise<boolean> {
   return !existing.empty;
 }
 
-async function grantRole(uid: string, role: 'customer' | 'owner') {
+async function grantRole(uid: string, role: 'customer' | 'cashier' | 'owner') {
   // The claim first: it is the authoritative copy, and the rules read it.
   await auth.setCustomUserClaims(uid, { role });
   await db.collection(paths.users).doc(uid).set(
@@ -93,10 +93,10 @@ export const claimStoreOwnership = onCall(
 );
 
 /**
- * Grants or revokes the owner role for another account.
+ * Grants or revokes the owner or cashier role for another account.
  *
- * Owner-only, and an owner cannot demote themselves — a store with no owner would have no
- * way to price anything or fulfil an order.
+ * Owner-only, and an owner cannot change their own role away from owner — a store with no
+ * owner would have no way to price anything, change settings, or fulfil an order.
  */
 export const setUserRole = onCall(async (request) => {
   const caller = requireOwner(request);
@@ -105,8 +105,8 @@ export const setUserRole = onCall(async (request) => {
   const targetEmail = requireString(data, 'email', { maxLength: 200 });
   const role = requireString(data, 'role', { maxLength: 20 });
 
-  if (role !== 'owner' && role !== 'customer') {
-    throw new HttpsError('invalid-argument', 'Role must be owner or customer.');
+  if (role !== 'owner' && role !== 'cashier' && role !== 'customer') {
+    throw new HttpsError('invalid-argument', 'Role must be owner, cashier or customer.');
   }
 
   let targetUid: string;
@@ -117,7 +117,10 @@ export const setUserRole = onCall(async (request) => {
     throw new HttpsError('not-found', 'No account uses that email address.');
   }
 
-  if (targetUid === caller.uid && role === 'customer') {
+  // Broadened from `role === 'customer'`: now that cashier is a valid role, an owner could
+  // otherwise demote themselves to cashier and land the store in exactly the same
+  // no-owner state this guard exists to prevent.
+  if (targetUid === caller.uid && role !== 'owner') {
     throw new HttpsError(
       'failed-precondition',
       'You cannot remove your own owner access. Ask another owner to do it.',

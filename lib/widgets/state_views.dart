@@ -206,6 +206,7 @@ class AsyncView<T> extends StatelessWidget {
     super.key,
     this.onRetry,
     this.loadingMessage,
+    this.loadingBuilder,
     this.compact = false,
   });
 
@@ -213,13 +214,19 @@ class AsyncView<T> extends StatelessWidget {
   final Widget Function(BuildContext context, T data) builder;
   final VoidCallback? onRetry;
   final String? loadingMessage;
+
+  /// Overrides the default spinner — a shimmer skeleton shaped like the eventual list, for
+  /// a screen whose first load benefits from showing that shape early.
+  final WidgetBuilder? loadingBuilder;
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return value.when(
       data: (data) => builder(context, data),
-      loading: () => LoadingView(message: loadingMessage, compact: compact),
+      loading: () =>
+          loadingBuilder?.call(context) ??
+          LoadingView(message: loadingMessage, compact: compact),
       error: (error, stackTrace) =>
           ErrorView.from(error, stackTrace, onRetry: onRetry, compact: compact),
     );

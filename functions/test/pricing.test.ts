@@ -5,7 +5,6 @@ import {
   cashPriceCentavos,
   formatCentavos,
   gcashBasePriceCentavos,
-  divideRoundHalfUp,
   MoneyError,
 } from '../src/domain/money';
 import {
@@ -38,20 +37,25 @@ describe('cash price', () => {
 });
 
 describe('GCash base price', () => {
-  it('uses a true margin and keeps centavos', () => {
-    assert.equal(gcashBasePriceCentavos(1500, TWENTY_PERCENT), 1875); // ₱18.75
-    assert.equal(gcashBasePriceCentavos(1700, TWENTY_PERCENT), 2125); // ₱21.25
-    assert.equal(gcashBasePriceCentavos(1000, 3000), 1429); // ₱14.2857… → ₱14.29
+  it('uses the same markup as cash and floors to a whole peso', () => {
+    assert.equal(gcashBasePriceCentavos(1500, TWENTY_PERCENT), 1800); // ₱15 → ₱18
+    assert.equal(gcashBasePriceCentavos(1700, TWENTY_PERCENT), 2000); // ₱17 → ₱20.40 → ₱20
+    assert.equal(gcashBasePriceCentavos(1000, 3000), 1300); // ₱10 → ₱13
   });
 
-  it('makes the margin a share of the selling price', () => {
-    const price = gcashBasePriceCentavos(1500, TWENTY_PERCENT);
-    assert.equal(price - 1500, 375); // 20% of ₱18.75, not 20% of ₱15
+  it('is identical to the cash price for the same cost', () => {
+    for (let cost = 100; cost <= 2000; cost += 37) {
+      assert.equal(
+        gcashBasePriceCentavos(cost, TWENTY_PERCENT),
+        cashPriceCentavos(cost, TWENTY_PERCENT),
+        `cost ${cost}`,
+      );
+    }
   });
 
-  it('rejects a margin of 100% or more', () => {
-    assert.throws(() => gcashBasePriceCentavos(1500, 10000), MoneyError);
-    assert.throws(() => gcashBasePriceCentavos(1500, 15000), MoneyError);
+  it('rejects negative inputs', () => {
+    assert.throws(() => gcashBasePriceCentavos(-1, TWENTY_PERCENT), MoneyError);
+    assert.throws(() => gcashBasePriceCentavos(1500, -1), MoneyError);
   });
 });
 
@@ -60,12 +64,12 @@ describe('parity with the Dart pricing engine', () => {
   // The client previews a price and the server charges it; if the two ever disagree, a
   // customer sees one number and pays another.
   const cases: Array<[number, number, number, number]> = [
-    [1500, 2000, 1800, 1875],
-    [1700, 2000, 2000, 2125],
-    [1749, 2000, 2000, 2186],
-    [1666, 2000, 1900, 2083],
-    [1500, 1750, 1700, 1818],
-    [1000, 3000, 1300, 1429],
+    [1500, 2000, 1800, 1800],
+    [1700, 2000, 2000, 2000],
+    [1749, 2000, 2000, 2000],
+    [1666, 2000, 1900, 1900],
+    [1500, 1750, 1700, 1700],
+    [1000, 3000, 1300, 1300],
     [1500, 0, 1500, 1500],
   ];
 
@@ -156,12 +160,5 @@ describe('formatting and rounding helpers', () => {
     assert.equal(formatCentavos(1875), '₱18.75');
     assert.equal(formatCentavos(50), '₱0.50');
     assert.equal(formatCentavos(-525), '-₱5.25');
-  });
-
-  it('rounds halves away from zero', () => {
-    assert.equal(divideRoundHalfUp(5, 2), 3);
-    assert.equal(divideRoundHalfUp(-5, 2), -3);
-    assert.equal(divideRoundHalfUp(1, 3), 0);
-    assert.throws(() => divideRoundHalfUp(1, 0), MoneyError);
   });
 });

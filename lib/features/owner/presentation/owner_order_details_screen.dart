@@ -8,6 +8,8 @@ import '../../../models/order.dart';
 import '../../../routing/app_routes.dart';
 import '../../../widgets/price_display.dart';
 import '../../../widgets/state_views.dart';
+import '../../../widgets/text_prompt_dialog.dart';
+import '../../auth/application/auth_controller.dart';
 import '../../orders/presentation/order_details_screen.dart' show orderProvider;
 import '../../orders/presentation/order_history_screen.dart';
 
@@ -64,46 +66,20 @@ class _OwnerOrderDetailsScreenState
     }
   }
 
-  Future<String?> _askForCancellationReason() async {
-    final controller = TextEditingController();
-    final reason = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Cancel this order?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'The reserved stock goes back on the shelf and the customer sees '
-              'why it was cancelled.',
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: 'Reason'),
-              textCapitalization: TextCapitalization.sentences,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Keep the order'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(
-              controller.text.trim().isEmpty
-                  ? 'Cancelled by the store'
-                  : controller.text.trim(),
-            ),
-            child: const Text('Cancel order'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    return reason;
+  Future<String?> _askForCancellationReason() {
+    return showTextPrompt(
+      context,
+      title: 'Cancel this order?',
+      label: 'Reason',
+      description:
+          'The reserved stock goes back on the shelf and the customer sees '
+          'why it was cancelled.',
+      confirmLabel: 'Cancel order',
+      cancelLabel: 'Keep the order',
+    ).then((reason) {
+      if (reason == null) return null;
+      return reason.trim().isEmpty ? 'Cancelled by the store' : reason;
+    });
   }
 
   @override
@@ -155,7 +131,10 @@ class _Body extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final costs = ref.watch(orderCostSnapshotProvider(order.id));
+    // A cashier can process this order but never sees its cost snapshot — the rules deny
+    // that read outright, so the cost is not even fetched for one, rather than fetched and
+    // then hidden.
+    final isCashier = ref.watch(isCashierProvider);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
@@ -195,11 +174,15 @@ class _Body extends ConsumerWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(order.contact.name, style: theme.textTheme.bodyLarge),
-                const SizedBox(height: 4),
-                Text(order.contact.phoneNumber),
+                if (order.contact.phoneNumber.trim().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(order.contact.phoneNumber),
+                ],
                 const SizedBox(height: 4),
                 Text(
-                  order.contact.isDelivery
+                  order.isWalkIn
+                      ? 'Rung up at the register'
+                      : order.contact.isDelivery
                       ? 'Deliver to ${order.contact.address}'
                       : 'Pick up at the store',
                   style: theme.textTheme.bodyMedium,
@@ -213,7 +196,7 @@ class _Body extends ConsumerWidget {
                 ],
                 const SizedBox(height: 8),
                 Text(
-                  '${order.customerType.label} customer · '
+                  '${order.isWalkIn ? 'Walk-in' : order.customerType.label} customer · '
                   'paying by ${order.paymentMethod.label}',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
@@ -266,18 +249,30 @@ class _Body extends ConsumerWidget {
                   ),
                 const Divider(height: 20),
                 PriceRow(
-                  label: 'Customer pays',
+                  label: order.isWalkIn ? 'Total' : 'Customer pays',
                   amount: order.total,
                   emphasised: true,
                 ),
+                if (order.amountTendered != null)
+                  PriceRow(
+                    label: 'Amount tendered',
+                    amount: order.amountTendered!,
+                  ),
+                if (order.changeDue != null)
+                  PriceRow(label: 'Change', amount: order.changeDue!),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 24),
-        Text('What this order earns', style: theme.textTheme.titleSmall),
-        const SizedBox(height: 8),
-        _ProfitCard(order: order, costs: costs),
+        if (!isCashier) ...[
+          const SizedBox(height: 24),
+          Text('What this order earns', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 8),
+          _ProfitCard(
+            order: order,
+            costs: ref.watch(orderCostSnapshotProvider(order.id)),
+          ),
+        ],
       ],
     );
   }

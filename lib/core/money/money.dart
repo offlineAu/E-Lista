@@ -176,17 +176,3 @@ int _floorDiv(int numerator, int denominator) {
   final oppositeSigns = (numerator < 0) != (denominator < 0);
   return (hasRemainder && oppositeSigns) ? quotient - 1 : quotient;
 }
-
-/// Integer division rounding halves away from zero.
-///
-/// Exposed for the pricing engine, which needs a stated rounding rule for the one division
-/// it performs (the GCash true-margin price).
-int divideRoundHalfUp(int numerator, int denominator) {
-  if (denominator == 0) {
-    throw const MoneyException('Division by zero.');
-  }
-  final sign = ((numerator < 0) != (denominator < 0)) ? -1 : 1;
-  final a = numerator.abs();
-  final b = denominator.abs();
-  return sign * ((2 * a + b) ~/ (2 * b));
-}

@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../config/app_config.dart';
+
 /// The Firebase SDK singletons, exposed as providers.
 ///
 /// Nothing outside this file reaches for `FirebaseFirestore.instance` directly. Going
@@ -23,7 +25,7 @@ final firestoreProvider = Provider<FirebaseFirestore>((ref) {
 });
 
 final firebaseFunctionsProvider = Provider<FirebaseFunctions>((ref) {
-  return FirebaseFunctions.instance;
+  return FirebaseFunctions.instanceFor(region: AppConfig.functionsRegion);
 });
 
 final firebaseStorageProvider = Provider<FirebaseStorage>((ref) {

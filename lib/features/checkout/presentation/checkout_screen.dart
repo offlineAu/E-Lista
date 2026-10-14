@@ -7,6 +7,7 @@ import '../../../models/cart.dart';
 import '../../../models/order.dart';
 import '../../../models/payment_method.dart';
 import '../../../routing/app_routes.dart';
+import '../../../widgets/gcash_qr_payment_card.dart';
 import '../../../widgets/price_display.dart';
 import '../../../widgets/state_views.dart';
 import '../../auth/application/auth_controller.dart';
@@ -215,6 +216,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                 ],
               ),
             ),
+            if (method == PaymentMethod.gcash) ...[
+              const SizedBox(height: 16),
+              GcashQrPaymentCard(amount: totals.total),
+            ],
             const SizedBox(height: 24),
             Text('Order summary', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),

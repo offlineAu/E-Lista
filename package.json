@@ -1,0 +1,24 @@
+{
+  "name": "e-lista",
+  "version": "1.0.0",
+  "description": "A sari-sari store app for Philippine neighbourhood shops, built with Flutter and Firebase.\r One binary serves two roles: shoppers — including guests who never make an account — and\r the store owner, who prices, restocks and fulfils.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/offlineAu/E-Lista.git"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/offlineAu/E-Lista/issues"
+  },
+  "homepage": "https://github.com/offlineAu/E-Lista#readme"
+}

@@ -7,6 +7,7 @@ import '../core/money/money.dart';
 import '../features/pricing/domain/pricing_engine.dart';
 import '../models/price_history_entry.dart';
 import '../models/product.dart';
+import '../models/product_batch.dart';
 
 /// Owner-side reads of the catalog, including the cost prices customers cannot see.
 ///
@@ -126,6 +127,49 @@ class OwnerProductRepository {
         .map(
           (snapshot) =>
               snapshot.docs.map(PriceHistoryEntry.fromFirestore).toList(),
+        );
+  }
+
+  /// One product's batches, oldest-expiring first — the same order FEFO sells them in.
+  Stream<List<ProductBatch>> watchBatches(
+    String productId, {
+    int limit = AppConfig.ownerListPageSize,
+  }) {
+    return _firestore
+        .collection('productBatches')
+        .where('productId', isEqualTo: productId)
+        .orderBy('expiryDate')
+        .limit(limit)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs.map(ProductBatch.fromFirestore).toList(),
+        );
+  }
+
+  /// Batches, across every product, expiring within [withinDays] and not yet sold through.
+  ///
+  /// A single-field range query, so it needs no composite index beyond the one
+  /// [watchBatches] already relies on. Depleted batches are filtered out client-side rather
+  /// than in the query, since "is this batch used up" is a comparison between two fields
+  /// Firestore cannot express in one `where`.
+  Stream<List<ProductBatch>> watchExpiringSoon({
+    int withinDays = 7,
+    int limit = 50,
+  }) {
+    final horizon = Timestamp.fromDate(
+      DateTime.now().add(Duration(days: withinDays)),
+    );
+    return _firestore
+        .collection('productBatches')
+        .where('expiryDate', isLessThanOrEqualTo: horizon)
+        .orderBy('expiryDate')
+        .limit(limit)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map(ProductBatch.fromFirestore)
+              .where((batch) => !batch.isDepleted)
+              .toList(),
         );
   }
 }

@@ -11,12 +11,20 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 
+import { batchDoc } from './lib/batches';
+import {
+  buildSaleRecord,
+  priceAndAllocateLines,
+  readPricingSnapshots,
+  writeStockForSale,
+} from './lib/order_lines';
 import {
   DEFAULT_GCASH_FEE_TIERS,
   normaliseGcashFeeTiers,
   resolveGcashFeeCentavos,
   type GcashFeeTier,
 } from './domain/gcash_fees';
+import { resolveTender, TenderError } from './domain/tender';
 import { formatCentavos } from './domain/money';
 import {
   asObject,
@@ -26,13 +34,16 @@ import {
   optionalString,
   orderCostsDoc,
   paths,
-  productPricingDoc,
   requireAuth,
-  requireOwner,
+  requireOwnerOrCashier,
   requireString,
 } from './lib/context';
 
 type PaymentMethod = 'cash' | 'gcash';
+
+/** Which side of the counter created the order: a customer's own cart, or a cashier
+ *  ringing up a walk-in sale with no customer account involved. */
+type OrderChannel = 'storefront' | 'pos';
 
 type OrderStatus =
   | 'pending'
@@ -166,121 +177,14 @@ export const placeOrder = onCall(async (request) => {
   const now = new Date();
 
   const result = await db.runTransaction(async (transaction) => {
-    // ---- reads ----------------------------------------------------------------
-    const productRefs = lines.map((line) =>
-      db.collection(paths.products).doc(line.productId),
-    );
-    const costRefs = lines.map((line) => productPricingDoc(line.productId));
-
-    const productSnapshots = await transaction.getAll(...productRefs);
-    const costSnapshots = await transaction.getAll(...costRefs);
-
-    // ---- validate and price ---------------------------------------------------
-    const orderItems: Record<string, unknown>[] = [];
-    const costLines: Record<string, unknown>[] = [];
-    const stockWrites: {
-      ref: FirebaseFirestore.DocumentReference;
-      previousStock: number;
-      newStock: number;
-      lowStockThreshold: number;
-      productName: string;
-      quantity: number;
-    }[] = [];
-
-    let subtotalCentavos = 0;
-    let productCostCentavos = 0;
-    let itemCount = 0;
-
-    for (let index = 0; index < lines.length; index++) {
-      const line = lines[index];
-      const snapshot = productSnapshots[index];
-
-      if (!snapshot.exists) {
-        throw new HttpsError(
-          'failed-precondition',
-          'One of the products in your cart is no longer in the store. ' +
-            'Please remove it and try again.',
-        );
-      }
-
-      const product = snapshot.data() as Record<string, unknown>;
-      const name = typeof product.name === 'string' ? product.name : 'Product';
-
-      if (product.isActive !== true) {
-        throw new HttpsError(
-          'failed-precondition',
-          `${name} is no longer available. Please remove it from your cart.`,
-        );
-      }
-
-      const stock = Number(product.stockQuantity ?? 0);
-      if (!Number.isSafeInteger(stock) || stock < line.quantity) {
-        throw new HttpsError(
-          'failed-precondition',
-          stock <= 0
-            ? `${name} has just sold out.`
-            : `Only ${stock} of ${name} left. Please lower the quantity.`,
-        );
-      }
-
-      // The price the store is charging right now, from the product document — never
-      // from anything the client sent.
-      const cashPrice = Number(product.cashPriceCentavos ?? 0);
-      const gcashPrice = Number(product.gcashBasePriceCentavos ?? 0);
-      const unitPrice = paymentMethod === 'cash' ? cashPrice : gcashPrice;
-
-      if (!Number.isSafeInteger(unitPrice) || unitPrice < 0) {
-        throw new HttpsError(
-          'failed-precondition',
-          `${name} is not priced correctly. Please ask the store to check it.`,
-        );
-      }
-
-      const lineTotal = unitPrice * line.quantity;
-      subtotalCentavos += lineTotal;
-      itemCount += line.quantity;
-
-      orderItems.push({
-        productId: line.productId,
-        productName: name,
-        brand: product.brand ?? null,
-        unit: product.unit ?? 'pc',
-        imageUrl: product.imageUrl ?? null,
-        quantity: line.quantity,
-        cashPriceCentavos: cashPrice,
-        gcashPriceCentavos: gcashPrice,
-        selectedUnitPriceCentavos: unitPrice,
-        lineTotalCentavos: lineTotal,
-      });
-
-      // The cost snapshot goes to an owner-only subdocument, never onto the order the
-      // customer can read.
-      const costData = costSnapshots[index].data() as Record<string, unknown> | undefined;
-      const unitCost = Number(costData?.costPriceCentavos ?? 0);
-      const safeUnitCost = Number.isSafeInteger(unitCost) && unitCost >= 0 ? unitCost : 0;
-      productCostCentavos += safeUnitCost * line.quantity;
-      costLines.push({
-        productId: line.productId,
-        quantity: line.quantity,
-        costPriceCentavos: safeUnitCost,
-      });
-
-      const threshold = Number(product.lowStockThreshold ?? 0);
-      stockWrites.push({
-        ref: productRefs[index],
-        previousStock: stock,
-        newStock: stock - line.quantity,
-        lowStockThreshold: Number.isSafeInteger(threshold) ? threshold : 0,
-        productName: name,
-        quantity: line.quantity,
-      });
-    }
+    const reads = await readPricingSnapshots(transaction, lines);
+    const priced = priceAndAllocateLines({ lines, paymentMethod, ...reads });
 
     const convenienceFeeCentavos =
       paymentMethod === 'gcash'
-        ? resolveGcashFeeCentavos(subtotalCentavos, feeTiers)
+        ? resolveGcashFeeCentavos(priced.subtotalCentavos, feeTiers)
         : 0;
-    const totalCentavos = subtotalCentavos + convenienceFeeCentavos;
+    const totalCentavos = priced.subtotalCentavos + convenienceFeeCentavos;
 
     if (expectedTotal !== undefined && expectedTotal !== totalCentavos) {
       throw new HttpsError(
@@ -290,45 +194,29 @@ export const placeOrder = onCall(async (request) => {
       );
     }
 
-    // ---- writes ---------------------------------------------------------------
-    for (const write of stockWrites) {
-      transaction.update(write.ref, {
-        stockQuantity: write.newStock,
-        isLowStock: write.newStock <= write.lowStockThreshold,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-
-      // Stock is reserved at placement, not at completion: it is the only way two
-      // customers cannot both buy the last pack. Cancelling gives it back.
-      const ledgerRef = db.collection(paths.inventoryTransactions).doc();
-      transaction.set(ledgerRef, {
-        productId: write.ref.id,
-        productName: write.productName,
-        type: 'sale',
-        quantity: -write.quantity,
-        previousStock: write.previousStock,
-        newStock: write.newStock,
-        referenceType: 'order',
-        referenceId: orderRef.id,
-        performedBy: caller.uid,
-        performedByName: contactName,
-        createdAt: FieldValue.serverTimestamp(),
-      });
-    }
+    // Stock is reserved at placement, not at completion: it is the only way two customers
+    // cannot both buy the last pack. Cancelling gives it back.
+    writeStockForSale(transaction, {
+      stockWrites: priced.stockWrites,
+      orderId: orderRef.id,
+      performedBy: caller.uid,
+      performedByName: contactName,
+    });
 
     const orderNumber = buildOrderNumber(now);
 
     transaction.set(orderRef, {
       orderNumber,
+      channel: 'storefront' satisfies OrderChannel,
       customerId: caller.uid,
       customerType: caller.isAnonymous ? 'guest' : 'registered',
       paymentMethod,
       status: 'pending' satisfies OrderStatus,
-      items: orderItems,
-      subtotalCentavos,
+      items: priced.orderItems,
+      subtotalCentavos: priced.subtotalCentavos,
       convenienceFeeCentavos,
       totalCentavos,
-      itemCount,
+      itemCount: priced.itemCount,
       contact: {
         name: contactName,
         phoneNumber: contactPhone,
@@ -351,15 +239,15 @@ export const placeOrder = onCall(async (request) => {
     });
 
     transaction.set(orderCostsDoc(orderRef.id), {
-      lines: costLines,
-      totalProductCostCentavos: productCostCentavos,
+      lines: priced.costLines,
+      totalProductCostCentavos: priced.productCostCentavos,
       createdAt: FieldValue.serverTimestamp(),
     });
 
     return {
       orderId: orderRef.id,
       orderNumber,
-      subtotalCentavos,
+      subtotalCentavos: priced.subtotalCentavos,
       convenienceFeeCentavos,
       totalCentavos,
     };
@@ -378,8 +266,9 @@ export const placeOrder = onCall(async (request) => {
 /**
  * Moves an order along, or cancels it.
  *
- * Owner-only, and the allowed transitions are enforced here rather than in the owner's
- * screen. Two side effects matter:
+ * Owner or cashier — this is what "processing sales/orders" means at the register — and the
+ * allowed transitions are enforced here rather than in the owner's screen. Two side effects
+ * matter:
  *
  * * **Cancelling returns the reserved stock**, with a ledger row for each product, so the
  *   shelf count stays honest.
@@ -387,7 +276,7 @@ export const placeOrder = onCall(async (request) => {
  *   cannot double-count a day's takings.
  */
 export const updateOrderStatus = onCall(async (request) => {
-  const caller = requireOwner(request);
+  const caller = requireOwnerOrCashier(request);
   const data = asObject(request.data);
 
   const orderId = requireString(data, 'orderId', { maxLength: 128 });
@@ -420,9 +309,11 @@ export const updateOrderStatus = onCall(async (request) => {
     const items = Array.isArray(order.items) ? order.items : [];
 
     // Reads must all happen before writes in a Firestore transaction, so gather anything
-    // a cancellation or a completion needs up front.
+    // a cancellation or a completion needs up front. Cancellation needs the cost snapshot
+    // too now: it records exactly which batches the sale drew from, which is what lets a
+    // cancellation restore those specific batches instead of a flat product-level pool.
     let costData: Record<string, unknown> | undefined;
-    if (nextStatus === 'completed') {
+    if (nextStatus === 'completed' || nextStatus === 'cancelled') {
       const costSnapshot = await transaction.get(orderCostsDoc(orderId));
       costData = costSnapshot.data() as Record<string, unknown> | undefined;
     }
@@ -512,30 +403,191 @@ export const updateOrderStatus = onCall(async (request) => {
       });
     }
 
-    if (nextStatus === 'completed') {
-      const subtotal = Number(order.subtotalCentavos ?? 0);
-      const fee = Number(order.convenienceFeeCentavos ?? 0);
-      const productCost = Number(costData?.totalProductCostCentavos ?? 0);
-      const grossProfit = subtotal - productCost;
+    if (nextStatus === 'cancelled' && OPEN_STATUSES.includes(currentStatus)) {
+      // The flat stockQuantity restore above always happens, for every unit, regardless of
+      // batch attribution — this only puts the units back into the *specific* batches the
+      // sale actually drew from, so a batch fully sold out by this order becomes sellable
+      // (and FEFO-eligible) again rather than the return silently landing wherever is
+      // oldest now.
+      const costLines = Array.isArray(costData?.lines) ? costData!.lines : [];
+      for (const entry of costLines) {
+        const line = entry as Record<string, unknown>;
+        const batches = Array.isArray(line.batches) ? line.batches : [];
+        for (const draw of batches) {
+          const batchDraw = draw as Record<string, unknown>;
+          const batchId = batchDraw.batchId;
+          const quantity = Number(batchDraw.quantity ?? 0);
+          if (typeof batchId !== 'string' || !Number.isSafeInteger(quantity) || quantity <= 0) {
+            continue;
+          }
+          transaction.update(batchDoc(batchId), {
+            remainingQuantity: FieldValue.increment(quantity),
+          });
+        }
+      }
+    }
 
-      transaction.set(db.collection(paths.sales).doc(orderId), {
-        orderId,
-        paymentMethod: order.paymentMethod ?? 'cash',
-        grossSalesCentavos: subtotal,
-        productCostCentavos: productCost,
-        grossProfitCentavos: grossProfit,
-        convenienceFeeCentavos: fee,
-        // The fee is money the customer paid on top of the goods; it is counted as
-        // revenue here. What the store is charged by GCash in return is an expense the
-        // app does not see, which is why reports call this "estimated".
-        netProfitCentavos: grossProfit + fee,
-        itemCount: Number(order.itemCount ?? 0),
-        customerId: order.customerId ?? null,
-        completedAt: Timestamp.fromDate(now),
-        dayKey: dayKeyFor(now),
-      });
+    if (nextStatus === 'completed') {
+      transaction.set(
+        db.collection(paths.sales).doc(orderId),
+        buildSaleRecord({
+          orderId,
+          paymentMethod: (order.paymentMethod as PaymentMethod) ?? 'cash',
+          subtotalCentavos: Number(order.subtotalCentavos ?? 0),
+          convenienceFeeCentavos: Number(order.convenienceFeeCentavos ?? 0),
+          productCostCentavos: Number(costData?.totalProductCostCentavos ?? 0),
+          itemCount: Number(order.itemCount ?? 0),
+          customerId: (order.customerId as string | null) ?? null,
+          completedAt: now,
+        }),
+      );
     }
 
     return { orderId, status: nextStatus };
+  });
+});
+
+/**
+ * Books a walk-in register sale as already complete.
+ *
+ * No cart, no contact, no status ladder: a customer at the counter has already paid before
+ * the cashier presses anything, so the order is written straight to `completed` in one
+ * transaction rather than started `pending` and walked through {@link updateOrderStatus}
+ * four times. Owner or cashier only — a plain customer account must never be able to mint a
+ * completed, stock-decrementing sale for itself.
+ */
+export const placeWalkInSale = onCall(async (request) => {
+  const caller = requireOwnerOrCashier(request);
+  const data = asObject(request.data);
+
+  const lines = parseRequestedLines(data);
+  const paymentMethod = parsePaymentMethod(data.paymentMethod);
+  const customerName = optionalString(data, 'customerName', { maxLength: 120 });
+  const rawTendered =
+    typeof data.amountTenderedCentavos === 'number' ? data.amountTenderedCentavos : undefined;
+
+  const expectedTotal =
+    typeof data.expectedTotalCentavos === 'number' &&
+    Number.isSafeInteger(data.expectedTotalCentavos)
+      ? data.expectedTotalCentavos
+      : undefined;
+
+  // Read outside the transaction, same as placeOrder: the fee table changes rarely and is
+  // not a race participant.
+  const feeTiers = await readFeeTiers();
+
+  const orderRef = db.collection(paths.orders).doc();
+  const now = new Date();
+
+  return db.runTransaction(async (transaction) => {
+    const reads = await readPricingSnapshots(transaction, lines);
+    const priced = priceAndAllocateLines({ lines, paymentMethod, ...reads });
+
+    const convenienceFeeCentavos =
+      paymentMethod === 'gcash'
+        ? resolveGcashFeeCentavos(priced.subtotalCentavos, feeTiers)
+        : 0;
+    const totalCentavos = priced.subtotalCentavos + convenienceFeeCentavos;
+
+    if (expectedTotal !== undefined && expectedTotal !== totalCentavos) {
+      throw new HttpsError(
+        'failed-precondition',
+        `The total changed to ${formatCentavos(totalCentavos)} while ringing this up. ` +
+          'Please review the sale and confirm again.',
+      );
+    }
+
+    let tender;
+    try {
+      tender = resolveTender({
+        paymentMethod,
+        totalCentavos,
+        amountTenderedCentavos: rawTendered,
+      });
+    } catch (error) {
+      if (error instanceof TenderError) {
+        throw new HttpsError('invalid-argument', error.message);
+      }
+      throw error;
+    }
+
+    writeStockForSale(transaction, {
+      stockWrites: priced.stockWrites,
+      orderId: orderRef.id,
+      performedBy: caller.uid,
+      performedByName: caller.name ?? 'Staff',
+    });
+
+    const orderNumber = buildOrderNumber(now);
+
+    transaction.set(orderRef, {
+      orderNumber,
+      channel: 'pos' satisfies OrderChannel,
+      // A walk-in sale has no customer account; `customerId` here has always actually held
+      // the ringing-up cashier's uid, which `cashierId` now says explicitly. Both stay,
+      // additive rather than a breaking rename.
+      customerId: caller.uid,
+      cashierId: caller.uid,
+      customerType: caller.isAnonymous ? 'guest' : 'registered',
+      paymentMethod,
+      status: 'completed' satisfies OrderStatus,
+      items: priced.orderItems,
+      subtotalCentavos: priced.subtotalCentavos,
+      convenienceFeeCentavos,
+      totalCentavos,
+      itemCount: priced.itemCount,
+      amountTenderedCentavos: tender.amountTenderedCentavos,
+      changeCentavos: tender.changeCentavos,
+      contact: {
+        name: customerName ?? 'Walk-in customer',
+        phoneNumber: '',
+        address: null,
+        notes: null,
+      },
+      statusHistory: [
+        {
+          status: 'completed',
+          changedAt: Timestamp.fromDate(now),
+          changedBy: caller.uid,
+          note: null,
+        },
+      ],
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      completedAt: Timestamp.fromDate(now),
+      cancelledAt: null,
+      cancellationReason: null,
+    });
+
+    transaction.set(orderCostsDoc(orderRef.id), {
+      lines: priced.costLines,
+      totalProductCostCentavos: priced.productCostCentavos,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    transaction.set(
+      db.collection(paths.sales).doc(orderRef.id),
+      buildSaleRecord({
+        orderId: orderRef.id,
+        paymentMethod,
+        subtotalCentavos: priced.subtotalCentavos,
+        convenienceFeeCentavos,
+        productCostCentavos: priced.productCostCentavos,
+        itemCount: priced.itemCount,
+        customerId: caller.uid,
+        cashierId: caller.uid,
+        completedAt: now,
+      }),
+    );
+
+    return {
+      orderId: orderRef.id,
+      orderNumber,
+      subtotalCentavos: priced.subtotalCentavos,
+      convenienceFeeCentavos,
+      totalCentavos,
+      amountTenderedCentavos: tender.amountTenderedCentavos,
+      changeCentavos: tender.changeCentavos,
+    };
   });
 });

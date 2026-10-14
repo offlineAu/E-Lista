@@ -11,6 +11,7 @@ import '../../../models/product.dart';
 import '../../../routing/app_routes.dart';
 import '../../../services/product_catalog_service.dart';
 import '../../../widgets/barcode_scanner_view.dart';
+import '../../../widgets/expiry_date_field.dart';
 import '../../../widgets/price_display.dart';
 import '../../../widgets/state_views.dart';
 import '../../products/application/catalog_service_providers.dart';
@@ -249,6 +250,7 @@ class _RestockSheetState extends ConsumerState<_RestockSheet> {
   final _costController = TextEditingController();
   bool _updateCost = false;
   bool _isSaving = false;
+  DateTime? _expiryDate;
 
   @override
   void dispose() {
@@ -272,6 +274,7 @@ class _RestockSheetState extends ConsumerState<_RestockSheet> {
             type: InventoryTransactionType.restock,
             quantity: quantity,
             unitCost: cost,
+            expiryDate: _expiryDate,
           );
       if (!mounted) return;
       Navigator.of(context).pop(
@@ -362,6 +365,10 @@ class _RestockSheetState extends ConsumerState<_RestockSheet> {
                 validator: _updateCost ? Validators.costPrice : null,
               ),
             ],
+            const SizedBox(height: 8),
+            ExpiryDateField(
+              onChanged: (date) => setState(() => _expiryDate = date),
+            ),
             const SizedBox(height: 20),
             FilledButton(
               onPressed: _isSaving ? null : _submit,

@@ -5,8 +5,10 @@ import 'package:go_router/go_router.dart';
 import '../../../core/providers/repository_providers.dart';
 import '../../../models/order.dart';
 import '../../../routing/app_routes.dart';
+import '../../../widgets/shimmer_loading.dart';
 import '../../../widgets/state_views.dart';
 import '../../orders/presentation/order_history_screen.dart';
+import 'widgets/cashier_logout_action.dart';
 
 /// Which orders the owner is looking at. `null` means every open one.
 final ownerOrderFilterProvider = StateProvider<OrderStatus?>((ref) => null);
@@ -32,7 +34,10 @@ class OwnerOrdersScreen extends ConsumerWidget {
     final filter = ref.watch(ownerOrderFilterProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Orders')),
+      appBar: AppBar(
+        title: const Text('Orders'),
+        actions: const [CashierLogoutAction()],
+      ),
       body: Column(
         children: [
           SizedBox(
@@ -69,6 +74,9 @@ class OwnerOrdersScreen extends ConsumerWidget {
             child: AsyncView<List<StoreOrder>>(
               value: orders,
               onRetry: () => ref.invalidate(ownerOrdersProvider),
+              loadingBuilder: (context) => const ShimmerListSkeleton(
+                padding: EdgeInsets.fromLTRB(16, 4, 16, 24),
+              ),
               builder: (context, list) {
                 if (list.isEmpty) {
                   return EmptyView(

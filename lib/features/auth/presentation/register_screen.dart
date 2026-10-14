@@ -66,6 +66,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
     if (!mounted) return;
     if (!ref.read(authControllerProvider).hasError) {
+      // Same race as login_screen.dart's _submit: the router's redirect reads
+      // authSessionProvider synchronously the instant context.go fires below, and
+      // registering does not by itself rebuild that cached session.
+      final _ = await ref.refresh(authSessionProvider.future);
+      if (!mounted) return;
       showSuccessSnackBar(context, 'Your account is ready.');
       context.go(AppRoutes.splash);
     }

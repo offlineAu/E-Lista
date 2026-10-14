@@ -17,7 +17,8 @@ enum PaymentMethod {
     chargesConvenienceFee: false,
   ),
 
-  /// GCash transfer. Uses the true-margin price and adds one convenience fee per order.
+  /// GCash transfer. Uses the same marked-up price as cash and adds one convenience fee
+  /// per order.
   gcash(
     id: 'gcash',
     label: 'GCash',

@@ -16,27 +16,37 @@ enum UserRole {
   /// A registered shopper.
   customer,
 
+  /// A restricted staff account: can process orders and record stock movements, but
+  /// cannot change prices, costs or settings, or manage other staff.
+  cashier,
+
   /// The store owner. Sees costs, inventory, sales and settings.
   owner;
 
   static UserRole fromJson(Object? value) => switch (value) {
     'owner' => UserRole.owner,
+    'cashier' => UserRole.cashier,
     'guest' => UserRole.guest,
     _ => UserRole.customer,
   };
 
   String toJson() => name;
 
-  /// True for both guests and registered shoppers.
-  bool get isCustomer => this != UserRole.owner;
+  /// True for both guests and registered shoppers — the ordinary "buying" accounts, as
+  /// opposed to store staff (cashier, owner). Written as an explicit enumeration, not
+  /// `this != owner`, so a future staff role does not silently start counting as a customer.
+  bool get isCustomer => this == UserRole.guest || this == UserRole.customer;
 
   bool get isOwner => this == UserRole.owner;
+
+  bool get isCashier => this == UserRole.cashier;
 
   bool get isGuest => this == UserRole.guest;
 
   String get label => switch (this) {
     UserRole.guest => 'Guest',
     UserRole.customer => 'Customer',
+    UserRole.cashier => 'Cashier',
     UserRole.owner => 'Store owner',
   };
 }
@@ -78,6 +88,7 @@ class UserProfile {
   final DateTime? updatedAt;
 
   bool get isOwner => role.isOwner;
+  bool get isCashier => role.isCashier;
   bool get isCustomer => role.isCustomer;
 
   /// True when the account can still be upgraded by linking a permanent credential.

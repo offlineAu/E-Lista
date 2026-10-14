@@ -26,6 +26,8 @@ import {
   asObject,
   db,
   gcashFeesDoc,
+  gcashQrDoc,
+  optionalString,
   paths,
   pricingSettingsDoc,
   productPricingDoc,
@@ -203,6 +205,29 @@ export const saveGcashFeeTiers = onCall(async (request) => {
   });
 
   return { tierCount: tiers.length };
+});
+
+/**
+ * Sets or clears the store's GCash "Scan to Pay" QR code.
+ *
+ * A static image, not a generated one: the owner uploads a picture of the QR their own
+ * GCash app already produces (Profile → My QR Code), already stored in Firebase Storage by
+ * the time this is called. This just records where it ended up — or, called with no
+ * `imageUrl`, clears it so checkout stops showing a stale or removed code.
+ */
+export const saveGcashQr = onCall(async (request) => {
+  const caller = requireOwner(request);
+  const data = asObject(request.data);
+
+  const imageUrl = optionalString(data, 'imageUrl', { maxLength: 2000 });
+
+  await gcashQrDoc().set({
+    imageUrl: imageUrl ?? null,
+    updatedAt: FieldValue.serverTimestamp(),
+    updatedBy: caller.uid,
+  });
+
+  return { imageUrl: imageUrl ?? null };
 });
 
 /**

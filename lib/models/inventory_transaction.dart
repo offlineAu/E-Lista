@@ -86,6 +86,35 @@ enum InventoryReferenceType {
   String toJson() => name;
 }
 
+/// How much of a write-off or a restock a specific batch contributed, so a movement that
+/// spans more than one batch (a FEFO-auto-selected write-off, say) stays traceable.
+@immutable
+class InventoryBatchDraw {
+  const InventoryBatchDraw({required this.batchId, required this.quantity});
+
+  final String batchId;
+  final int quantity;
+
+  Map<String, Object?> toJson() => {'batchId': batchId, 'quantity': quantity};
+
+  static InventoryBatchDraw? fromJson(Object? value) {
+    if (value is! Map) return null;
+    final batchId = value['batchId'];
+    final quantity = value['quantity'];
+    if (batchId is! String || quantity is! num) return null;
+    return InventoryBatchDraw(batchId: batchId, quantity: quantity.toInt());
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is InventoryBatchDraw &&
+      other.batchId == batchId &&
+      other.quantity == quantity;
+
+  @override
+  int get hashCode => Object.hash(batchId, quantity);
+}
+
 /// One line of the inventory ledger, at `inventoryTransactions/{id}`.
 ///
 /// Owner-readable only: it carries stock levels and, for restocks, the receipt cost.
@@ -107,6 +136,8 @@ class InventoryTransaction {
     this.referenceId,
     this.unitCost,
     this.reason,
+    this.batchId,
+    this.batchDraws = const [],
     this.performedBy,
     this.performedByName,
     this.createdAt,
@@ -138,6 +169,15 @@ class InventoryTransaction {
   /// Why, for adjustments, damage and expiry.
   final String? reason;
 
+  /// The batch a restock created, or the batch a manual return was credited to. `null` for
+  /// anything else, including a write-off that drew from batches — see [batchDraws] for
+  /// that.
+  final String? batchId;
+
+  /// Which batch(es) a write-off or a FEFO-covered sale drew from, and how much from each.
+  /// Empty for a movement that predates batch tracking, or that has none to report.
+  final List<InventoryBatchDraw> batchDraws;
+
   final String? performedBy;
   final String? performedByName;
   final DateTime? createdAt;
@@ -164,6 +204,8 @@ class InventoryTransaction {
     'referenceId': referenceId,
     'unitCostCentavos': unitCost?.centavos,
     'reason': reason,
+    'batchId': batchId,
+    'batchDraws': batchDraws.map((draw) => draw.toJson()).toList(),
     'performedBy': performedBy,
     'performedByName': performedByName,
     'createdAt': createdAt == null
@@ -189,6 +231,15 @@ class InventoryTransaction {
       referenceId: json['referenceId'] as String?,
       unitCost: rawCost == null ? null : Money.fromJson(rawCost),
       reason: json['reason'] as String?,
+      batchId: json['batchId'] as String?,
+      batchDraws: switch (json['batchDraws']) {
+        final List<Object?> raw =>
+          raw
+              .map(InventoryBatchDraw.fromJson)
+              .whereType<InventoryBatchDraw>()
+              .toList(),
+        _ => const [],
+      },
       performedBy: json['performedBy'] as String?,
       performedByName: json['performedByName'] as String?,
       createdAt: switch (json['createdAt']) {

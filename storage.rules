@@ -20,6 +20,13 @@ service firebase.storage {
       allow write: if isOwner() && isImageUnder(5 * 1024 * 1024);
     }
 
+    // The store's own GCash "Scan to Pay" QR code — one fixed image, shown to customers
+    // and cashiers at GCash checkout.
+    match /settings/gcash_qr/{fileName} {
+      allow read: if true;
+      allow write: if isOwner() && isImageUnder(5 * 1024 * 1024);
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

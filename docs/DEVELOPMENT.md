@@ -4,24 +4,24 @@
 
 | Tool | Version used | Notes |
 | --- | --- | --- |
-| Flutter | 3.44.9 (stable) | Installed at `D:\flutter` on this machine. |
+| Flutter | 3.44.9 (stable) | Installed at `D:\laragon\bin\flutter` on this machine. |
 | Dart | 3.12.2 | Bundled with Flutter. |
 | Node | 22.15.0 | For `functions/` (Cloud Functions, TypeScript). |
 
-Flutter is **not** on the system `PATH` on this machine. Either add `D:\flutter\bin` to
+Flutter is **not** on the system `PATH` on this machine. Either add `D:\laragon\bin\flutter\bin` to
 your `PATH`, or invoke it by full path:
 
 ```powershell
-D:\flutter\bin\flutter.bat analyze
-D:\flutter\bin\flutter.bat test
+D:\laragon\bin\flutter\bin\flutter.bat analyze
+D:\laragon\bin\flutter\bin\flutter.bat test
 ```
 
 ## Verification loop
 
 ```powershell
-D:\flutter\bin\dart.bat format .
-D:\flutter\bin\flutter.bat analyze
-D:\flutter\bin\flutter.bat test
+D:\laragon\bin\flutter\bin\dart.bat format .
+D:\laragon\bin\flutter\bin\flutter.bat analyze
+D:\laragon\bin\flutter\bin\flutter.bat test
 ```
 
 ## Firebase
@@ -32,15 +32,30 @@ real project or to the local emulators.
 
 ### Running against emulators
 
+The app targets the demo project `demo-e-lista`, so the emulators must run with the same
+project ID (otherwise the Functions emulator 404s every callable):
+
 ```powershell
 npm install -g firebase-tools     # once
-firebase emulators:start          # from the repository root
+# Emulators require Java 21+ on PATH. On this machine (PowerShell):
+$env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-21.0.12.8-hotspot"
+# The function discovery timeout is raised on this machine (slow first boot):
+$env:FUNCTIONS_DISCOVERY_TIMEOUT = "120"
+# --import/--export-on-exit carries Auth/Firestore state across restarts. Without it, every
+# restart wipes all accounts, so a phone that remembers yesterday's sign-in tries to refresh
+# a uid the emulator has never heard of and the app shows a generic "could not sign in".
+firebase emulators:start --project demo-e-lista --only functions,firestore,auth,storage `
+  --import=./emulator-data --export-on-exit=./emulator-data
 ```
+
+`emulator-data/` is git-ignored — it is local, disposable state, not something to commit. The
+first run will complain the directory does not exist yet; create it once with
+`mkdir emulator-data` and the complaint goes away for good.
 
 Then run the app with the emulator flag:
 
 ```powershell
-D:\flutter\bin\flutter.bat run --dart-define=USE_FIREBASE_EMULATOR=true
+D:\laragon\bin\flutter\bin\flutter.bat run -d chrome --dart-define=USE_FIREBASE_EMULATOR=true
 ```
 
 ### Connecting a real project

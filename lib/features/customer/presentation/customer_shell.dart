@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../routing/app_routes.dart';
+import '../../../widgets/floating_nav_bar.dart';
 import '../../cart/application/cart_controller.dart';
 
 /// The frame around every customer screen: bottom navigation and the cart badge.
@@ -56,29 +57,20 @@ class CustomerShell extends ConsumerWidget {
 
     return Scaffold(
       body: child,
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: FloatingNavBar(
         selectedIndex: selectedIndex,
         onDestinationSelected: (index) {
           final destination = _destinations[index];
           if (destination.route == location) return;
           context.go(destination.route);
         },
-        destinations: [
+        items: [
           for (final destination in _destinations)
-            NavigationDestination(
-              icon: destination.showsCartCount && cartCount > 0
-                  ? Badge.count(count: cartCount, child: Icon(destination.icon))
-                  : Icon(destination.icon),
-              selectedIcon: destination.showsCartCount && cartCount > 0
-                  ? Badge.count(
-                      count: cartCount,
-                      child: Icon(destination.selectedIcon),
-                    )
-                  : Icon(destination.selectedIcon),
+            FloatingNavItem(
+              icon: destination.icon,
+              selectedIcon: destination.selectedIcon,
               label: destination.label,
-              tooltip: destination.showsCartCount && cartCount > 0
-                  ? '${destination.label}, $cartCount items'
-                  : destination.label,
+              badgeCount: destination.showsCartCount ? cartCount : 0,
             ),
         ],
       ),

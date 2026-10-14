@@ -4,12 +4,17 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/money/money.dart';
 import '../../../models/product.dart';
+import '../../../models/product_batch.dart';
 import '../../../models/sale.dart';
 import '../../../routing/app_routes.dart';
+import '../../../widgets/aurora_header.dart';
+import '../../../widgets/glass_card.dart';
 import '../../../widgets/price_display.dart';
+import '../../../widgets/sparkline.dart';
 import '../../../widgets/state_views.dart';
 import '../../auth/application/auth_controller.dart';
 import '../application/dashboard_providers.dart';
+import '../application/owner_product_providers.dart' show expiringBatchesProvider;
 
 /// The owner's morning screen: what sold today, what is waiting, what is running out.
 ///
@@ -26,6 +31,8 @@ class OwnerDashboardScreen extends ConsumerWidget {
     final sales = ref.watch(todaySalesProvider);
     final pending = ref.watch(pendingOrderCountProvider);
     final lowStock = ref.watch(lowStockProvider);
+    final weekTrend = ref.watch(estimatedWeekTrendProvider);
+    final expiringSoon = ref.watch(expiringBatchesProvider);
 
     return Scaffold(
       body: RefreshIndicator(
@@ -33,97 +40,255 @@ class OwnerDashboardScreen extends ConsumerWidget {
           ref
             ..invalidate(todaySalesProvider)
             ..invalidate(pendingOrderCountProvider)
-            ..invalidate(lowStockProvider);
+            ..invalidate(lowStockProvider)
+            ..invalidate(estimatedWeekTrendProvider)
+            ..invalidate(expiringBatchesProvider);
         },
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          padding: EdgeInsets.zero,
           children: [
-            SafeArea(
-              bottom: false,
-              child: Row(
+            AuroraHeader(
+              greeting: session == null
+                  ? 'Welcome back'
+                  : 'Hello, ${session.greetingName}',
+              title: 'Dashboard',
+              chip: _HeaderStatChip(sales: sales),
+              actions: [
+                IconButton(
+                  onPressed: () => context.go(AppRoutes.ownerSettings),
+                  icon: const Icon(Icons.settings_outlined, color: Colors.white),
+                  tooltip: 'Settings',
+                ),
+              ],
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Dashboard', style: theme.textTheme.headlineSmall),
-                        Text(
-                          session == null
-                              ? 'Your store today'
-                              : '${session.greetingName}, here is your store today',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
+                  _TodayFigures(sales: sales),
+                  const SizedBox(height: 12),
+                  _ExpiringSoonBanner(expiringSoon: expiringSoon),
+                  _WeekTrendCard(trend: weekTrend),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _StatCard(
+                          label: 'Pending orders',
+                          value: pending.when(
+                            data: (count) => '$count',
+                            loading: () => '—',
+                            error: (error, stackTrace) => '—',
                           ),
+                          icon: Icons.pending_actions_outlined,
+                          onTap: () => context.go(AppRoutes.ownerOrders),
+                          emphasis: (pending.valueOrNull ?? 0) > 0,
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _StatCard(
+                          label: 'Low stock',
+                          value: lowStock.when(
+                            data: (products) => '${products.length}',
+                            loading: () => '—',
+                            error: (error, stackTrace) => '—',
+                          ),
+                          icon: Icons.inventory_outlined,
+                          onTap: () => context.go(AppRoutes.ownerInventory),
+                          emphasis: (lowStock.valueOrNull ?? const []).isNotEmpty,
+                        ),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    onPressed: () => context.go(AppRoutes.ownerSettings),
-                    icon: const Icon(Icons.settings_outlined),
-                    tooltip: 'Settings',
+                  const SizedBox(height: 28),
+                  Text('Quick actions', style: theme.textTheme.titleMedium),
+                  const SizedBox(height: 12),
+                  const _QuickActions(),
+                  const SizedBox(height: 28),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Running low',
+                          style: theme.textTheme.titleMedium,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => context.go(AppRoutes.ownerInventory),
+                        child: const Text('Inventory'),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 4),
+                  _LowStockList(lowStock: lowStock),
                 ],
               ),
             ),
-            const SizedBox(height: 20),
-            _TodayFigures(sales: sales),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _StatCard(
-                    label: 'Pending orders',
-                    value: pending.when(
-                      data: (count) => '$count',
-                      loading: () => '—',
-                      error: (error, stackTrace) => '—',
-                    ),
-                    icon: Icons.pending_actions_outlined,
-                    onTap: () => context.go(AppRoutes.ownerOrders),
-                    emphasis: (pending.valueOrNull ?? 0) > 0,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _StatCard(
-                    label: 'Low stock',
-                    value: lowStock.when(
-                      data: (products) => '${products.length}',
-                      loading: () => '—',
-                      error: (error, stackTrace) => '—',
-                    ),
-                    icon: Icons.inventory_outlined,
-                    onTap: () => context.go(AppRoutes.ownerInventory),
-                    emphasis: (lowStock.valueOrNull ?? const []).isNotEmpty,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 28),
-            Text('Quick actions', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 12),
-            const _QuickActions(),
-            const SizedBox(height: 28),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Running low',
-                    style: theme.textTheme.titleMedium,
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => context.go(AppRoutes.ownerInventory),
-                  child: const Text('Inventory'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            _LowStockList(lowStock: lowStock),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The small card straddling the header's curved edge — today's headline figure, always
+/// visible without scrolling past the header.
+class _HeaderStatChip extends StatelessWidget {
+  const _HeaderStatChip({required this.sales});
+
+  final AsyncValue<SalesSummary> sales;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return GlassCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      blur: 14,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.trending_up, size: 14, color: theme.colorScheme.primary),
+              const SizedBox(width: 4),
+              Text(
+                'TODAY',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  letterSpacing: 0.6,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            sales.valueOrNull?.grossSales.format() ?? '—',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A warning that stock is about to become a write-off, straight from the dashboard rather
+/// than only discoverable by opening Inventory.
+class _ExpiringSoonBanner extends StatelessWidget {
+  const _ExpiringSoonBanner({required this.expiringSoon});
+
+  final AsyncValue<List<ProductBatch>> expiringSoon;
+
+  @override
+  Widget build(BuildContext context) {
+    final batches = expiringSoon.valueOrNull ?? const [];
+    if (batches.isEmpty) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        color: theme.colorScheme.errorContainer,
+        child: InkWell(
+          onTap: () => context.go(AppRoutes.ownerExpiringBatches),
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.event_busy_outlined,
+                  color: theme.colorScheme.onErrorContainer,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '${batches.length} '
+                    '${batches.length == 1 ? 'batch expires' : 'batches expire'} '
+                    'within 7 days — worth ${expiringSoonValue(batches).format()}. '
+                    'Act before it becomes a write-off.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right,
+                  color: theme.colorScheme.onErrorContainer,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// This week's actual sales so far, plus a rough projection from the last 4 weeks' trailing
+/// weekday averages — a trend, not a promise.
+class _WeekTrendCard extends StatelessWidget {
+  const _WeekTrendCard({required this.trend});
+
+  final AsyncValue<EstimatedWeekTrend> trend;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return trend.when(
+      loading: () => const SizedBox.shrink(),
+      error: (error, stackTrace) => const SizedBox.shrink(),
+      data: (value) {
+        if (value.sparkline.isEmpty) return const SizedBox.shrink();
+
+        return GlassCard(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Estimated this week',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      value.projectedTotal.format(),
+                      style: theme.textTheme.headlineSmall,
+                    ),
+                    Text(
+                      '${value.actualSoFar.format()} so far · 4-week trailing average',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              SizedBox(
+                width: 96,
+                child: Sparkline(
+                  values: [
+                    for (final day in value.sparkline) day.centavos / 100,
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

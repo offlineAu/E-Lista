@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'app_colors.dart';
 
 /// Material 3 themes for E-Lista.
 ///
-/// One theme serves both roles. The customer screens lean on the cream ground, big
+/// One theme serves both roles. The customer screens lean on the blush ground, big
 /// product cards and large touch targets; the owner screens reuse the same tokens with
 /// denser layouts, which keeps the app coherent instead of feeling like two apps stapled
 /// together.
@@ -14,6 +15,10 @@ import 'app_colors.dart';
 /// * Body text starts at 15sp, not 14sp — this is used one-handed, often outdoors.
 /// * Interactive targets are at least 48dp, per the Material accessibility guidance.
 /// * Text scales with the system setting; nothing is clamped below the user's choice.
+///
+/// Typefaces: Sora for headings (geometric, a little technical, rounded at the
+/// terminals so it doesn't turn cold) and Plus Jakarta Sans for body/UI text (warm,
+/// legible at small sizes).
 abstract final class AppTheme {
   /// The smallest side a tappable control may have.
   static const double minTouchTarget = 48;
@@ -29,70 +34,70 @@ abstract final class AppTheme {
 
   static const ColorScheme _lightScheme = ColorScheme(
     brightness: Brightness.light,
-    primary: AppColors.deepGreen,
+    primary: AppColors.primaryRose,
     onPrimary: Colors.white,
-    primaryContainer: AppColors.greenContainer,
-    onPrimaryContainer: AppColors.onGreenContainer,
-    secondary: AppColors.warmYellow,
-    onSecondary: AppColors.onWarmYellow,
-    secondaryContainer: AppColors.warmYellowContainer,
-    onSecondaryContainer: AppColors.onWarmYellow,
-    tertiary: AppColors.orange,
-    onTertiary: Colors.white,
-    tertiaryContainer: AppColors.orangeContainer,
-    onTertiaryContainer: AppColors.onOrangeContainer,
+    primaryContainer: AppColors.primaryRoseContainer,
+    onPrimaryContainer: AppColors.onPrimaryRoseContainer,
+    secondary: AppColors.accentViolet,
+    onSecondary: Colors.white,
+    secondaryContainer: AppColors.accentVioletContainer,
+    onSecondaryContainer: AppColors.onAccentVioletContainer,
+    tertiary: AppColors.tertiaryPink,
+    onTertiary: AppColors.plum,
+    tertiaryContainer: AppColors.tertiaryPinkContainer,
+    onTertiaryContainer: AppColors.onTertiaryPinkContainer,
     error: AppColors.danger,
     onError: Colors.white,
     errorContainer: AppColors.dangerContainer,
     onErrorContainer: AppColors.onDangerContainer,
     surface: AppColors.surface,
-    onSurface: AppColors.charcoal,
+    onSurface: AppColors.plum,
     surfaceContainerLowest: Colors.white,
     surfaceContainerLow: AppColors.surface,
-    surfaceContainer: AppColors.cream,
+    surfaceContainer: AppColors.blush,
     surfaceContainerHigh: AppColors.surfaceMuted,
     surfaceContainerHighest: AppColors.surfaceMuted,
-    onSurfaceVariant: AppColors.charcoalMuted,
+    onSurfaceVariant: AppColors.plumMuted,
     outline: AppColors.outlineStrong,
     outlineVariant: AppColors.outline,
-    inverseSurface: AppColors.charcoal,
-    onInverseSurface: AppColors.cream,
-    inversePrimary: AppColors.greenOnDark,
+    inverseSurface: AppColors.plum,
+    onInverseSurface: AppColors.blush,
+    inversePrimary: AppColors.primaryRoseOnDark,
     shadow: Color(0x1A000000),
     scrim: Color(0x99000000),
   );
 
   static const ColorScheme _darkScheme = ColorScheme(
     brightness: Brightness.dark,
-    primary: AppColors.greenOnDark,
-    onPrimary: Color(0xFF042816),
-    primaryContainer: Color(0xFF1B4633),
-    onPrimaryContainer: Color(0xFFCDEBDB),
-    secondary: AppColors.yellowOnDark,
-    onSecondary: Color(0xFF3A2E00),
-    secondaryContainer: Color(0xFF4E3D00),
-    onSecondaryContainer: Color(0xFFFBE9B4),
-    tertiary: AppColors.orangeOnDark,
-    onTertiary: Color(0xFF3D1500),
-    tertiaryContainer: Color(0xFF5B2A0B),
-    onTertiaryContainer: Color(0xFFFBDCC6),
+    primary: AppColors.primaryRoseOnDark,
+    onPrimary: Color(0xFF3D1228),
+    primaryContainer: Color(0xFF5C2A46),
+    onPrimaryContainer: Color(0xFFF9CEE7),
+    secondary: AppColors.accentVioletOnDark,
+    onSecondary: Color(0xFF241040),
+    secondaryContainer: Color(0xFF382B6B),
+    onSecondaryContainer: Color(0xFFE3D9FF),
+    tertiary: AppColors.tertiaryPinkOnDark,
+    onTertiary: Color(0xFF4A1F38),
+    tertiaryContainer: Color(0xFF5C2E48),
+    onTertiaryContainer: Color(0xFFFBDDEE),
     error: AppColors.dangerOnDark,
     onError: Color(0xFF470D08),
     errorContainer: Color(0xFF6B1C16),
     onErrorContainer: Color(0xFFFBDAD6),
     surface: AppColors.darkSurface,
     onSurface: AppColors.onDark,
-    surfaceContainerLowest: Color(0xFF101315),
+    surfaceContainerLowest: Color(0xFF120D10),
     surfaceContainerLow: AppColors.darkBackground,
     surfaceContainer: AppColors.darkSurface,
     surfaceContainerHigh: AppColors.darkSurfaceMuted,
-    surfaceContainerHighest: Color(0xFF2E343B),
+    surfaceContainerHighest: Color(0xFF3A2732),
     onSurfaceVariant: AppColors.onDarkMuted,
     outline: AppColors.darkOutline,
-    outlineVariant: Color(0xFF2E343B),
-    inverseSurface: AppColors.cream,
-    onInverseSurface: AppColors.charcoal,
-    inversePrimary: AppColors.deepGreen,
+    outlineVariant: Color(0xFF3A2732),
+    inverseSurface: AppColors.blush,
+    onInverseSurface: AppColors.plum,
+    inversePrimary: AppColors.primaryRose,
     shadow: Color(0x33000000),
     scrim: Color(0xCC000000),
   );
@@ -109,13 +114,13 @@ abstract final class AppTheme {
 
     return base.copyWith(
       scaffoldBackgroundColor: isLight
-          ? AppColors.cream
+          ? AppColors.blush
           : AppColors.darkBackground,
       textTheme: textTheme,
       splashFactory: InkSparkle.splashFactory,
       visualDensity: VisualDensity.standard,
       appBarTheme: AppBarTheme(
-        backgroundColor: isLight ? AppColors.cream : AppColors.darkBackground,
+        backgroundColor: isLight ? AppColors.blush : AppColors.darkBackground,
         foregroundColor: scheme.onSurface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
@@ -129,11 +134,13 @@ abstract final class AppTheme {
       cardTheme: CardThemeData(
         color: scheme.surface,
         surfaceTintColor: Colors.transparent,
-        elevation: 0,
+        // A soft tinted shadow instead of a hairline border — the "glassy, modern" look
+        // reads as cards floating above the ground, not cards outlined against it.
+        elevation: 2,
+        shadowColor: AppColors.primaryRose.withValues(alpha: 0.14),
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(radius),
-          side: BorderSide(color: scheme.outlineVariant),
         ),
       ),
       dividerTheme: DividerThemeData(
@@ -294,35 +301,40 @@ abstract final class AppTheme {
   }
 
   static TextTheme _textTheme(TextTheme base, ColorScheme scheme) {
-    return base
+    final body = GoogleFonts.plusJakartaSansTextTheme(base);
+    final heading = GoogleFonts.soraTextTheme(base);
+
+    return body
         .copyWith(
-          displaySmall: base.displaySmall?.copyWith(
-            fontWeight: FontWeight.w700,
+          displaySmall: heading.displaySmall?.copyWith(
+            fontWeight: FontWeight.w800,
             letterSpacing: -0.5,
           ),
-          headlineMedium: base.headlineMedium?.copyWith(
-            fontWeight: FontWeight.w700,
+          headlineMedium: heading.headlineMedium?.copyWith(
+            fontWeight: FontWeight.w800,
             letterSpacing: -0.4,
           ),
-          headlineSmall: base.headlineSmall?.copyWith(
+          headlineSmall: heading.headlineSmall?.copyWith(
             fontWeight: FontWeight.w700,
             letterSpacing: -0.3,
           ),
-          titleLarge: base.titleLarge?.copyWith(
+          titleLarge: heading.titleLarge?.copyWith(
             fontWeight: FontWeight.w700,
             letterSpacing: -0.2,
           ),
-          titleMedium: base.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-          titleSmall: base.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+          titleMedium: heading.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+          titleSmall: heading.titleSmall?.copyWith(fontWeight: FontWeight.w600),
           // 15sp body: this app is read one-handed, often in daylight.
-          bodyLarge: base.bodyLarge?.copyWith(fontSize: 16, height: 1.4),
-          bodyMedium: base.bodyMedium?.copyWith(fontSize: 15, height: 1.4),
-          bodySmall: base.bodySmall?.copyWith(fontSize: 13, height: 1.35),
-          labelLarge: base.labelLarge?.copyWith(
+          bodyLarge: body.bodyLarge?.copyWith(fontSize: 16, height: 1.4),
+          bodyMedium: body.bodyMedium?.copyWith(fontSize: 15, height: 1.4),
+          bodySmall: body.bodySmall?.copyWith(fontSize: 13, height: 1.35),
+          labelLarge: body.labelLarge?.copyWith(
             fontSize: 15,
             fontWeight: FontWeight.w600,
           ),
-          labelMedium: base.labelMedium?.copyWith(
+          labelMedium: body.labelMedium?.copyWith(
             fontSize: 13,
             fontWeight: FontWeight.w600,
           ),

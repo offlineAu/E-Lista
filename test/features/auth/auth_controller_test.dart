@@ -2,7 +2,8 @@ import 'package:e_lista/core/errors/app_failure.dart';
 import 'package:e_lista/features/auth/application/auth_controller.dart';
 import 'package:e_lista/models/user_profile.dart';
 import 'package:e_lista/services/auth_service.dart';
-import 'package:firebase_auth/firebase_auth.dart' show User;
+import 'package:firebase_auth/firebase_auth.dart'
+    show FirebaseAuthException, User;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -21,6 +22,11 @@ class FakeAuthService implements AuthService {
 
   final List<String> calls = [];
   Object? failWith;
+
+  /// When set alongside [failWith], only that named call throws — every other call
+  /// succeeds. `null` (the default) means [failWith] applies to whichever call happens
+  /// first, which is enough for tests that only ever make one call.
+  String? failOnCall;
 
   @override
   User? get currentUser => isSignedIn ? _StubUser(isAnonymous) : null;
@@ -73,7 +79,9 @@ class FakeAuthService implements AuthService {
   void _record(String call) {
     calls.add(call);
     final failure = failWith;
-    if (failure != null) throw failure;
+    if (failure != null && (failOnCall == null || failOnCall == call)) {
+      throw failure;
+    }
   }
 }
 
@@ -155,6 +163,85 @@ void main() {
 
       expect(service.calls, ['registerWithEmail']);
     });
+
+    test(
+      'registers fresh when the guest session no longer exists on the backend',
+      () async {
+        // The real shape this takes in practice: the Android SDK cannot classify
+        // Identity Toolkit's INVALID_REFRESH_TOKEN into one of its own codes, so it
+        // reports `unknown` and leaves the real reason inside the cause's message.
+        final service = FakeAuthService(isSignedIn: true, isAnonymous: true)
+          ..failOnCall = 'linkGuestToEmail'
+          ..failWith = AppFailure(
+            message: 'We could not sign you in right now. Please try again.',
+            code: 'unknown',
+            cause: FirebaseAuthException(
+              code: 'unknown',
+              message:
+                  'An internal error has occurred. [ INVALID_REFRESH_TOKEN ]',
+            ),
+          );
+
+        await controllerWith(
+          service,
+        ).register(email: 'ana@example.com', password: 'password123');
+
+        expect(service.calls, ['linkGuestToEmail', 'registerWithEmail']);
+      },
+    );
+
+    test(
+      'a genuine linking failure is not swallowed by the fallback',
+      () async {
+        final service = FakeAuthService(isSignedIn: true, isAnonymous: true)
+          ..failOnCall = 'linkGuestToEmail'
+          ..failWith = const AppFailure(
+            message: 'That email already has an account.',
+            code: 'email-already-in-use',
+          );
+        final controller = controllerWith(service);
+
+        await controller.register(
+          email: 'ana@example.com',
+          password: 'password123',
+        );
+
+        expect(
+          service.calls,
+          ['linkGuestToEmail'],
+          reason:
+              'a real credential problem must not fall back to a fresh account',
+        );
+        expect(controller.state.hasError, isTrue);
+      },
+    );
+
+    test(
+      'an "unknown" failure with no stale-token message is not swallowed either',
+      () async {
+        // `unknown` is a broad bucket the SDK falls into for all sorts of reasons — only
+        // the specific INVALID_REFRESH_TOKEN/TOKEN_EXPIRED shape means "stale guest".
+        final service = FakeAuthService(isSignedIn: true, isAnonymous: true)
+          ..failOnCall = 'linkGuestToEmail'
+          ..failWith = AppFailure(
+            message: 'We could not sign you in right now. Please try again.',
+            code: 'unknown',
+            cause: FirebaseAuthException(
+              code: 'unknown',
+              message: 'Some other internal error.',
+            ),
+          );
+        final controller = controllerWith(service);
+
+        await controller.register(
+          email: 'ana@example.com',
+          password: 'password123',
+        );
+
+        expect(service.calls, ['linkGuestToEmail']);
+        expect(controller.state.hasError, isTrue);
+      },
+    );
   });
 
   group('state', () {
@@ -262,6 +349,30 @@ void main() {
       expect(container.read(isOwnerProvider), isFalse);
       expect(container.read(currentUidProvider), isNull);
     });
+
+    test('a cashier session is staff, not an owner and not a guest', () {
+      final container = ProviderContainer(
+        overrides: [
+          currentSessionProvider.overrideWithValue(
+            const AuthSession(
+              uid: 'uid-3',
+              role: UserRole.cashier,
+              isAnonymous: false,
+              profile: UserProfile(
+                uid: 'uid-3',
+                role: UserRole.cashier,
+                isAnonymous: false,
+              ),
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      expect(container.read(isCashierProvider), isTrue);
+      expect(container.read(isOwnerProvider), isFalse);
+      expect(container.read(isGuestProvider), isFalse);
+    });
   });
 
   group('roles', () {
@@ -273,10 +384,21 @@ void main() {
       expect(UserRole.owner.isCustomer, isFalse);
     });
 
+    test('a cashier is staff, not a customer and not an owner', () {
+      expect(UserRole.cashier.isCustomer, isFalse);
+      expect(UserRole.cashier.isOwner, isFalse);
+      expect(UserRole.cashier.isCashier, isTrue);
+      expect(UserRole.cashier.isGuest, isFalse);
+    });
+
     test('an unknown stored role reads as customer, never as owner', () {
       expect(UserRole.fromJson('superuser'), UserRole.customer);
       expect(UserRole.fromJson(null), UserRole.customer);
       expect(UserRole.fromJson(''), UserRole.customer);
+    });
+
+    test('a valid cashier claim is recognised', () {
+      expect(UserRole.fromJson('cashier'), UserRole.cashier);
     });
 
     test('a guest profile can still be upgraded', () {

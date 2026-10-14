@@ -6,8 +6,11 @@ import 'package:intl/intl.dart';
 import '../../../core/providers/repository_providers.dart';
 import '../../../models/sale.dart';
 import '../../../routing/app_routes.dart';
+import '../../../widgets/glass_card.dart';
 import '../../../widgets/price_display.dart';
 import '../../../widgets/state_views.dart';
+import '../application/dashboard_providers.dart'
+    show EstimatedWeekTrend, WeekBarPoint, estimatedWeekTrendProvider;
 
 /// The period a report covers.
 enum ReportPeriod {
@@ -84,11 +87,17 @@ class OwnerSalesScreen extends ConsumerWidget {
     final period = ref.watch(selectedReportPeriodProvider);
     final summary = ref.watch(salesSummaryProvider);
     final byDay = ref.watch(salesByDayProvider);
+    final weekTrend = ref.watch(estimatedWeekTrendProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Sales'),
         actions: [
+          IconButton(
+            onPressed: () => context.go(AppRoutes.ownerBestSellers),
+            icon: const Icon(Icons.leaderboard_outlined),
+            tooltip: 'Best sellers',
+          ),
           IconButton(
             onPressed: () => context.go(AppRoutes.ownerReports),
             icon: const Icon(Icons.insights_outlined),
@@ -100,7 +109,8 @@ class OwnerSalesScreen extends ConsumerWidget {
         onRefresh: () async {
           ref
             ..invalidate(salesSummaryProvider)
-            ..invalidate(salesByDayProvider);
+            ..invalidate(salesByDayProvider)
+            ..invalidate(estimatedWeekTrendProvider);
         },
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
@@ -132,6 +142,29 @@ class OwnerSalesScreen extends ConsumerWidget {
               onRetry: () => ref.invalidate(salesSummaryProvider),
               builder: (context, value) => _SummaryCards(summary: value),
             ),
+            const SizedBox(height: 28),
+            Text('This week', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            AsyncView<EstimatedWeekTrend>(
+              value: weekTrend,
+              compact: true,
+              onRetry: () => ref.invalidate(estimatedWeekTrendProvider),
+              builder: (context, trend) => GlassCard(
+                child: Column(
+                  children: [
+                    _WeeklyBarChart(weekBars: trend.weekBars),
+                    if (trend.weekBars.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      const SizedBox(height: 10),
+                      const _ChartLegend(),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const _EstimateDisclosure(),
             const SizedBox(height: 28),
             Text('Day by day', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
@@ -228,6 +261,8 @@ class _SummaryCards extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
+        _PaymentSplitBar(summary: summary),
+        const SizedBox(height: 16),
         Row(
           children: [
             Expanded(
@@ -246,6 +281,242 @@ class _SummaryCards extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Monday through Sunday of the current week — solid bars for days that have happened,
+/// lighter outlined bars for the trailing-average projection of days still to come.
+class _WeeklyBarChart extends StatelessWidget {
+  const _WeeklyBarChart({required this.weekBars});
+
+  final List<WeekBarPoint> weekBars;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (weekBars.isEmpty) {
+      return const SizedBox(
+        height: 120,
+        child: Center(child: Text('No data yet')),
+      );
+    }
+
+    final maxCentavos = weekBars
+        .map((bar) => bar.value.centavos)
+        .fold(0, (a, b) => a > b ? a : b);
+
+    return SizedBox(
+      height: 120,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          for (final bar in weekBars)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.bottomCenter,
+                        child: FractionallySizedBox(
+                          heightFactor: maxCentavos <= 0
+                              ? 0.03
+                              : (bar.value.centavos / maxCentavos).clamp(
+                                  0.03,
+                                  1.0,
+                                ),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: bar.isProjected
+                                  ? theme.colorScheme.primary.withValues(
+                                      alpha: 0.18,
+                                    )
+                                  : theme.colorScheme.primary,
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(4),
+                              ),
+                              border: bar.isProjected
+                                  ? Border.all(
+                                      color: theme.colorScheme.primary
+                                          .withValues(alpha: 0.5),
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      bar.label,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Distinguishes the solid "actual" bars from the dashed "estimated" ones, so the chart
+/// reads correctly without having to already know the convention.
+class _ChartLegend extends StatelessWidget {
+  const _ChartLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final swatchColor = theme.colorScheme.primary;
+    final labelStyle = theme.textTheme.labelMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+
+    return Row(
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: swatchColor,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text('Actual', style: labelStyle),
+        const SizedBox(width: 16),
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: swatchColor.withValues(alpha: 0.18),
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(color: swatchColor.withValues(alpha: 0.5)),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text('Estimated', style: labelStyle),
+      ],
+    );
+  }
+}
+
+/// Makes clear the lighter bars are a projection, not a recorded figure — the same
+/// disclosure the concept canvas puts under its own trend chart.
+class _EstimateDisclosure extends StatelessWidget {
+  const _EstimateDisclosure();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.info_outline,
+            size: 16,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'The lighter bars are an estimate — a 4-week trailing average, not '
+              'a guarantee.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The cash/GCash split as a single proportional bar, with a legend — the same figures the
+/// two [_MethodCard]s show as exact amounts, here as a share.
+class _PaymentSplitBar extends StatelessWidget {
+  const _PaymentSplitBar({required this.summary});
+
+  final SalesSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final totalCentavos =
+        summary.cashGrossSales.centavos + summary.gcashGrossSales.centavos;
+    if (totalCentavos <= 0) return const SizedBox.shrink();
+
+    final cashFlex = ((summary.cashGrossSales.centavos / totalCentavos) * 1000)
+        .round()
+        .clamp(0, 1000);
+    final gcashFlex = 1000 - cashFlex;
+    final cashColor = theme.colorScheme.primary;
+    final gcashColor = theme.colorScheme.secondary;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: SizedBox(
+            height: 10,
+            child: Row(
+              children: [
+                if (cashFlex > 0) Expanded(flex: cashFlex, child: ColoredBox(color: cashColor)),
+                if (cashFlex > 0 && gcashFlex > 0) const SizedBox(width: 2),
+                if (gcashFlex > 0) Expanded(flex: gcashFlex, child: ColoredBox(color: gcashColor)),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _LegendDot(color: cashColor, label: 'Cash'),
+            const SizedBox(width: 16),
+            _LegendDot(color: gcashColor, label: 'GCash'),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _LegendDot extends StatelessWidget {
+  const _LegendDot({required this.color, required this.label});
+
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
       ],
     );

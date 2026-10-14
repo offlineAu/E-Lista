@@ -50,6 +50,7 @@ class Product {
     this.imageUrl,
     this.source = ProductSource.manual,
     this.searchTokens = const [],
+    this.unitsSoldTotal = 0,
     this.createdAt,
     this.updatedAt,
   });
@@ -90,6 +91,10 @@ class Product {
   /// Maintained by [buildSearchTokens]; not meant to be read by the UI.
   final List<String> searchTokens;
 
+  /// Lifetime units sold, maintained server-side as sales are rung up. Not net of any later
+  /// cancellation — a popularity signal for the storefront, not an inventory figure.
+  final int unitsSoldTotal;
+
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -121,6 +126,7 @@ class Product {
     bool? isActive,
     ProductSource? source,
     List<String>? searchTokens,
+    int? unitsSoldTotal,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -146,6 +152,7 @@ class Product {
       isActive: isActive ?? this.isActive,
       source: source ?? this.source,
       searchTokens: searchTokens ?? this.searchTokens,
+      unitsSoldTotal: unitsSoldTotal ?? this.unitsSoldTotal,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -171,6 +178,7 @@ class Product {
     'isActive': isActive,
     'source': source.toJson(),
     'searchTokens': searchTokens,
+    'unitsSoldTotal': unitsSoldTotal,
     'createdAt': createdAt == null
         ? FieldValue.serverTimestamp()
         : Timestamp.fromDate(createdAt!),
@@ -205,6 +213,7 @@ class Product {
               ?.whereType<String>()
               .toList() ??
           const [],
+      unitsSoldTotal: (json['unitsSoldTotal'] as num?)?.toInt() ?? 0,
       createdAt: _readTimestamp(json['createdAt']),
       updatedAt: _readTimestamp(json['updatedAt']),
     );

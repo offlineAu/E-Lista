@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' show User;
 
+import '../core/config/app_config.dart';
 import '../core/errors/error_mapper.dart';
 import '../models/user_profile.dart';
 
@@ -36,7 +37,7 @@ class UserRepository {
       final data = snapshot.data();
       if (data == null) return null;
       return UserProfile.fromJson(uid, data);
-    }, operation: 'load your profile');
+    }, operation: 'load your profile', timeout: AppConfig.backendTimeout);
   }
 
   /// Creates the profile document if it is missing, and keeps the fields Firebase Auth
@@ -93,7 +94,7 @@ class UserRepository {
       }
 
       return synced;
-    }, operation: 'set up your profile');
+    }, operation: 'set up your profile', timeout: AppConfig.backendTimeout);
   }
 
   /// Updates the details a shopper may edit.

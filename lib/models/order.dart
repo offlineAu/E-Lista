@@ -74,6 +74,21 @@ enum OrderStatus {
   static const int trackingStepCount = 5;
 }
 
+/// Which side of the counter created the order.
+///
+/// `pos` is a cashier ringing up a walk-in sale with no customer account involved — see
+/// [StoreOrder.isWalkIn]. A document from before this field existed has none, which
+/// [fromJson] reads as `storefront`, the only kind of order that existed then.
+enum OrderChannel {
+  storefront,
+  pos;
+
+  static OrderChannel fromJson(Object? value) =>
+      value == 'pos' ? OrderChannel.pos : OrderChannel.storefront;
+
+  String toJson() => name;
+}
+
 /// Whether the buyer had an account at the time of the order.
 enum CustomerType {
   guest,
@@ -235,6 +250,10 @@ class StoreOrder {
     required this.total,
     required this.contact,
     this.orderNumber,
+    this.channel = OrderChannel.storefront,
+    this.cashierId,
+    this.amountTendered,
+    this.changeDue,
     this.createdAt,
     this.updatedAt,
     this.completedAt,
@@ -252,6 +271,20 @@ class StoreOrder {
   final CustomerType customerType;
   final PaymentMethod paymentMethod;
   final OrderStatus status;
+
+  /// Storefront cart checkout, or a cashier's walk-in sale. See [isWalkIn].
+  final OrderChannel channel;
+
+  /// The uid of whoever rang this up at the counter — set only for a walk-in [isWalkIn]
+  /// sale. `null` for a storefront order, and for any walk-in sale written before this
+  /// field existed (those still carry the same uid under [customerId]).
+  final String? cashierId;
+
+  /// Cash handed over at the counter, and the change given back. Both `null` unless this is
+  /// a cash [isWalkIn] sale — a GCash payment is exact by construction, and a storefront
+  /// order is never paid in person at all.
+  final Money? amountTendered;
+  final Money? changeDue;
 
   final List<OrderItem> items;
 
@@ -283,6 +316,10 @@ class StoreOrder {
   bool get isGcash => paymentMethod == PaymentMethod.gcash;
 
   bool get wasPlacedByGuest => customerType == CustomerType.guest;
+
+  /// A cashier's walk-in sale, rung up with no customer account — as opposed to an ordinary
+  /// storefront order placed from someone's own cart.
+  bool get isWalkIn => channel == OrderChannel.pos;
 
   /// Recomputes the subtotal from the lines. Used to verify a document, never to display:
   /// [subtotal] as written by the server is the authority.
@@ -317,6 +354,10 @@ class StoreOrder {
       convenienceFee: convenienceFee,
       total: total,
       contact: contact,
+      channel: channel,
+      cashierId: cashierId,
+      amountTendered: amountTendered,
+      changeDue: changeDue,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       completedAt: completedAt ?? this.completedAt,
@@ -332,10 +373,14 @@ class StoreOrder {
     'customerType': customerType.toJson(),
     'paymentMethod': paymentMethod.toJson(),
     'status': status.toJson(),
+    'channel': channel.toJson(),
+    'cashierId': cashierId,
     'items': items.map((item) => item.toJson()).toList(),
     'subtotalCentavos': subtotal.centavos,
     'convenienceFeeCentavos': convenienceFee.centavos,
     'totalCentavos': total.centavos,
+    'amountTenderedCentavos': amountTendered?.centavos,
+    'changeCentavos': changeDue?.centavos,
     'contact': contact.toJson(),
     'createdAt': createdAt == null
         ? FieldValue.serverTimestamp()
@@ -363,6 +408,8 @@ class StoreOrder {
       customerType: CustomerType.fromJson(json['customerType']),
       paymentMethod: PaymentMethod.fromJson(json['paymentMethod']),
       status: OrderStatus.fromJson(json['status']),
+      channel: OrderChannel.fromJson(json['channel']),
+      cashierId: json['cashierId'] as String?,
       items: (json['items'] as List<Object?>? ?? const [])
           .whereType<Map<Object?, Object?>>()
           .map((raw) => OrderItem.fromJson(raw.cast<String, Object?>()))
@@ -370,6 +417,12 @@ class StoreOrder {
       subtotal: Money.fromJson(json['subtotalCentavos']),
       convenienceFee: Money.fromJson(json['convenienceFeeCentavos']),
       total: Money.fromJson(json['totalCentavos']),
+      amountTendered: json['amountTenderedCentavos'] == null
+          ? null
+          : Money.fromJson(json['amountTenderedCentavos']),
+      changeDue: json['changeCentavos'] == null
+          ? null
+          : Money.fromJson(json['changeCentavos']),
       contact: OrderContact.fromJson(
         (json['contact'] as Map<Object?, Object?>? ?? const {})
             .cast<String, Object?>(),

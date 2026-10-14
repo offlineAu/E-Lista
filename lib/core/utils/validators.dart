@@ -110,8 +110,8 @@ abstract final class Validators {
 
   /// A profit percentage.
   ///
-  /// The ceiling is not arbitrary: GCash pricing divides by `1 - margin`, so a percentage
-  /// at or near 100% produces a price no one would ever charge.
+  /// The ceiling exists so a store never prices itself into absurdity: a percentage near
+  /// 100% would double the price of everything and no one would buy anything.
   static String? profitPercentage(
     String? value, {
     int maximumBasisPoints = 9000,

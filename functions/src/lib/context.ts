@@ -28,7 +28,9 @@ export const paths = {
   sales: 'sales',
   inventoryTransactions: 'inventoryTransactions',
   productPriceHistory: 'productPriceHistory',
+  productBatches: 'productBatches',
   settings: 'settings',
+  cashCounts: 'cashCounts',
 } as const;
 
 /** The owner-only subdocument of a product, holding cost and pricing mode. */
@@ -44,9 +46,11 @@ export const pricingSettingsDoc = () =>
 
 export const gcashFeesDoc = () => db.collection(paths.settings).doc('gcash_fees');
 
+export const gcashQrDoc = () => db.collection(paths.settings).doc('gcash_qr');
+
 export interface Caller {
   uid: string;
-  role: 'guest' | 'customer' | 'owner';
+  role: 'guest' | 'customer' | 'cashier' | 'owner';
   isAnonymous: boolean;
   name?: string;
 }
@@ -55,7 +59,10 @@ export interface Caller {
  * The signed-in caller, or an `unauthenticated` error.
  *
  * Anonymous users pass: guests are real users in this app and are allowed to place orders.
- * What they are not allowed to do is anything guarded by {@link requireOwner}.
+ * What they are not allowed to do is anything guarded by {@link requireOwner} or
+ * {@link requireOwnerOrCashier}. An anonymous sign-in is always a guest regardless of any
+ * role claim it happens to carry — `owner`/`cashier` only ever mean something for a real
+ * credential.
  */
 export function requireAuth(request: CallableRequest): Caller {
   const authContext = request.auth;
@@ -68,11 +75,13 @@ export function requireAuth(request: CallableRequest): Caller {
     (token.firebase as { sign_in_provider?: string }).sign_in_provider === 'anonymous';
 
   const claimedRole = token.role;
-  const role = claimedRole === 'owner'
-    ? 'owner'
-    : isAnonymous
-      ? 'guest'
-      : 'customer';
+  const role = isAnonymous
+    ? 'guest'
+    : claimedRole === 'owner'
+      ? 'owner'
+      : claimedRole === 'cashier'
+        ? 'cashier'
+        : 'customer';
 
   return {
     uid: authContext.uid,
@@ -96,6 +105,21 @@ export function requireOwner(request: CallableRequest): Caller {
       'permission-denied',
       'Only the store owner can do that.',
     );
+  }
+  return caller;
+}
+
+/**
+ * The caller, required to be the store owner or a cashier.
+ *
+ * For the functions a cashier is allowed to call: processing orders and recording stock
+ * movements. Anything that changes a price, a cost, a setting, or another account's role
+ * stays behind {@link requireOwner}.
+ */
+export function requireOwnerOrCashier(request: CallableRequest): Caller {
+  const caller = requireAuth(request);
+  if (caller.role !== 'owner' && caller.role !== 'cashier') {
+    throw new HttpsError('permission-denied', 'Only store staff can do that.');
   }
   return caller;
 }
@@ -165,6 +189,20 @@ export function optionalInt(
 ): number | undefined {
   if (data[field] === undefined || data[field] === null) return undefined;
   return requireInt(data, field, options);
+}
+
+/**
+ * The one thing a price-history or batch write needs from a `WriteBatch` or a
+ * `Transaction`.
+ *
+ * Their `set` overloads differ enough that a union of the two types is not callable, so the
+ * capability is named directly. Both satisfy it structurally.
+ */
+export interface DocumentWriter {
+  set(
+    ref: FirebaseFirestore.DocumentReference,
+    data: FirebaseFirestore.DocumentData,
+  ): unknown;
 }
 
 /** Callable payloads arrive as `unknown`; this narrows them once, loudly. */

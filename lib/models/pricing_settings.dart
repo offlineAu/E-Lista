@@ -36,15 +36,14 @@ class PricingSettings {
 
   /// Whether a percentage is usable as a profit figure.
   ///
-  /// The upper bound exists because the GCash formula divides by `1 - margin`: at 100% the
-  /// price is infinite, and anything near it produces prices no one would type on purpose.
+  /// The upper bound exists so a store never prices itself into absurdity: a percentage
+  /// near 100% would double the price of everything and no one would buy anything.
   static String? describeProblem(Percentage percentage) {
     if (percentage.isNegative) {
       return 'Profit cannot be negative.';
     }
     if (percentage.basisPoints >= maximumProfitBasisPoints) {
-      return 'Profit must be below ${maximumProfit.format()}. '
-          'GCash pricing divides by the remaining margin, so 100% has no price.';
+      return 'Profit must be below ${maximumProfit.format()}.';
     }
     return null;
   }

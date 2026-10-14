@@ -9,6 +9,7 @@ import '../../../models/user_profile.dart';
 import '../../../routing/app_routes.dart';
 import '../../../widgets/app_logo.dart';
 import '../../../widgets/state_views.dart';
+import '../../../widgets/text_prompt_dialog.dart';
 import '../../auth/application/auth_controller.dart';
 
 /// The shopper's own details, and the way out of the app.
@@ -78,51 +79,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   /// arrives as a custom claim, so the ID token has to be refreshed before the app will
   /// show owner screens or Firestore will serve owner data.
   Future<void> _claimStore() async {
-    final controller = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
-    final code = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Take over this store'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'The setup code was configured when this app was deployed. '
-                'It works once, for the first owner only.',
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: controller,
-                autofocus: true,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'Setup code'),
-                validator: (value) =>
-                    Validators.required(value, field: 'Setup code'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              if (!(formKey.currentState?.validate() ?? false)) return;
-              Navigator.of(context).pop(controller.text.trim());
-            },
-            child: const Text('Claim'),
-          ),
-        ],
-      ),
+    final code = await showTextPrompt(
+      context,
+      title: 'Take over this store',
+      label: 'Setup code',
+      description:
+          'The setup code was configured when this app was deployed. '
+          'It works once, for the first owner only.',
+      obscureText: true,
+      confirmLabel: 'Claim',
+      validator: (value) => Validators.required(value, field: 'Setup code'),
     );
 
-    controller.dispose();
     if (code == null || !mounted) return;
 
     setState(() => _isSaving = true);
@@ -137,6 +105,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             forceRefresh: true,
           );
       await ref.read(authServiceProvider).refresh();
+      // The router's redirect reads authSessionProvider synchronously the instant
+      // context.go below fires. Forcing the token above does not by itself rebuild that
+      // cached session, so without this the redirect still sees the old customer role and
+      // bounces straight back to the customer shell before the stream catches up.
+      final session = await ref.refresh(authSessionProvider.future);
+      debugPrint(
+        'e_lista: after claiming ownership, session role = ${session?.role}',
+      );
 
       if (!mounted) return;
       showSuccessSnackBar(context, 'You are now the store owner.');

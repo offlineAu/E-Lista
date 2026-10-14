@@ -18,6 +18,7 @@ import {
   pricesFor,
   type PricingMode,
 } from './domain/pricing';
+import { writeNewBatch } from './lib/batches';
 import {
   asObject,
   db,
@@ -30,6 +31,7 @@ import {
   requireOwner,
   requireString,
   type Caller,
+  type DocumentWriter,
 } from './lib/context';
 
 /** Lower-cased prefixes of the name, brand and category, backing catalog search. */
@@ -129,19 +131,6 @@ interface PriceHistoryInput {
   };
 }
 
-/**
- * The one thing this function needs from a `WriteBatch` or a `Transaction`.
- *
- * Their `set` overloads differ enough that a union of the two types is not callable, so
- * the capability is named directly. Both satisfy it structurally.
- */
-export interface DocumentWriter {
-  set(
-    ref: FirebaseFirestore.DocumentReference,
-    data: FirebaseFirestore.DocumentData,
-  ): unknown;
-}
-
 /** Appends one row to the pricing audit trail. Never updates or deletes. */
 export function writePriceHistory(
   batch: DocumentWriter,
@@ -205,6 +194,7 @@ export const saveProduct = onCall(async (request) => {
     max: 100_000,
   }) ?? 0;
   const initialStock = optionalInt(data, 'initialStock', { min: 0, max: 1_000_000 });
+  const expiryDateMillis = optionalInt(data, 'expiryDateMillis', { min: 0 });
 
   const isActive = data.isActive === undefined ? true : data.isActive === true;
 
@@ -324,17 +314,36 @@ export const saveProduct = onCall(async (request) => {
     }
 
     if (isCreate && stockQuantity > 0) {
-      transaction.set(db.collection(paths.inventoryTransactions).doc(), {
+      // Minted before both writes so the ledger row and the opening batch can carry each
+      // other's id, the same cross-reference adjustInventory's restock path uses.
+      const ledgerRef = db.collection(paths.inventoryTransactions).doc();
+      const referenceType = source === 'catalogImport' ? 'import' : 'manual';
+
+      const batchRef = writeNewBatch(transaction, {
+        productId: productRef.id,
+        productName: name,
+        quantity: stockQuantity,
+        unitCostCentavos: costPriceCentavos,
+        expiryDateMillis,
+        sourceReferenceType: referenceType,
+        sourceTransactionId: ledgerRef.id,
+        performedBy: caller.uid,
+        performedByName: caller.name,
+      });
+
+      transaction.set(ledgerRef, {
         productId: productRef.id,
         productName: name,
         type: 'restock',
         quantity: stockQuantity,
         previousStock: 0,
         newStock: stockQuantity,
-        referenceType: source === 'catalogImport' ? 'import' : 'manual',
+        referenceType,
         referenceId: null,
         unitCostCentavos: costPriceCentavos,
         reason: 'Opening stock',
+        batchId: batchRef.id,
+        batchDraws: [],
         performedBy: caller.uid,
         performedByName: caller.name ?? null,
         createdAt: FieldValue.serverTimestamp(),

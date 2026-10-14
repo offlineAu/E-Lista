@@ -22,6 +22,16 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.role == 'owner';
     }
 
+    function isCashier() {
+      return isSignedIn() && request.auth.token.role == 'cashier';
+    }
+
+    // A cashier processes sales and sees stock levels, but never costs or profit — those
+    // stay behind isOwner() alone, collection by collection below.
+    function isOwnerOrCashier() {
+      return isOwner() || isCashier();
+    }
+
     function isSelf(uid) {
       return isSignedIn() && request.auth.uid == uid;
     }
@@ -70,8 +80,8 @@ service cloud.firestore {
     // placeOrder callable so that totals, stock and fees are derived server-side.
 
     match /orders/{orderId} {
-      allow get: if isOwner() || isSelf(resource.data.customerId);
-      allow list: if isOwner() || (isSignedIn() && request.auth.uid == resource.data.customerId);
+      allow get: if isOwnerOrCashier() || isSelf(resource.data.customerId);
+      allow list: if isOwnerOrCashier() || (isSignedIn() && request.auth.uid == resource.data.customerId);
       allow write: if false;
 
       // Per-line cost snapshot used for profit reporting.
@@ -97,7 +107,7 @@ service cloud.firestore {
     // -------------------------------------------------------- owner-only data
 
     match /inventoryTransactions/{txId} {
-      allow read: if isOwner();
+      allow read: if isOwnerOrCashier();
       allow write: if false;
     }
 
@@ -106,8 +116,20 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // A cashier reads only their own shift's counts; the owner reviews every cashier's.
+    match /cashCounts/{countId} {
+      allow read: if isOwner() ||
+                     (isCashier() && resource.data.cashierId == request.auth.uid);
+      allow write: if false; // Cloud Functions only.
+    }
+
     match /productPriceHistory/{entryId} {
       allow read: if isOwner();
+      allow write: if false;
+    }
+
+    match /productBatches/{batchId} {
+      allow read: if isOwnerOrCashier();
       allow write: if false;
     }
 
@@ -118,6 +140,13 @@ service cloud.firestore {
     // settings (default profit percentage, cash rounding policy) is owner-only.
 
     match /settings/gcash_fees {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // The QR image itself lives in Storage; this just points at it. Public for the same
+    // reason as the fee table: a customer paying by GCash has to be able to see it.
+    match /settings/gcash_qr {
       allow read: if true;
       allow write: if false;
     }

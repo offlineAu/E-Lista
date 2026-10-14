@@ -73,7 +73,7 @@ class _CalmErrorWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const ColoredBox(
-      color: AppColors.cream,
+      color: AppColors.blush,
       child: Center(
         child: Padding(
           padding: EdgeInsets.all(24),
@@ -86,7 +86,7 @@ class _CalmErrorWidget extends StatelessWidget {
                 'Something on this screen could not be shown.\n'
                 'Please go back and try again.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.charcoal, fontSize: 15),
+                style: TextStyle(color: AppColors.plum, fontSize: 15),
               ),
             ],
           ),

@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../models/product.dart';
 import '../../../routing/app_routes.dart';
+import '../../../widgets/aurora_header.dart';
 import '../../../widgets/product_card.dart';
+import '../../../widgets/shimmer_loading.dart';
 import '../../../widgets/state_views.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../cart/application/cart_controller.dart';
@@ -62,7 +66,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final catalog = ref.watch(catalogControllerProvider);
     final session = ref.watch(currentSessionProvider);
 
@@ -72,33 +75,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         child: CustomScrollView(
           controller: _scrollController,
           slivers: [
-            SliverAppBar(
-              floating: true,
-              titleSpacing: 20,
-              title: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Kumusta, ${session?.greetingName ?? 'there'}!',
-                    style: theme.textTheme.titleLarge,
-                  ),
-                  Text(
-                    'What do you need today?',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+            SliverToBoxAdapter(
+              child: AuroraHeader(
+                greeting: 'Kumusta, ${session?.greetingName ?? 'there'}!',
+                title: 'What do you need today?',
+                height: 170,
+                actions: [
+                  IconButton(
+                    onPressed: () => context.go(AppRoutes.customerScan),
+                    icon: const Icon(
+                      Icons.qr_code_scanner,
+                      color: Colors.white,
                     ),
+                    tooltip: 'Scan a barcode',
                   ),
                 ],
               ),
-              actions: [
-                IconButton(
-                  onPressed: () => context.go(AppRoutes.customerScan),
-                  icon: const Icon(Icons.qr_code_scanner),
-                  tooltip: 'Scan a barcode',
-                ),
-                const SizedBox(width: 8),
-              ],
             ),
             SliverToBoxAdapter(
               child: Padding(
@@ -106,11 +98,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 child: _SearchBar(onTap: () => context.go(AppRoutes.search)),
               ),
             ),
+            const SliverToBoxAdapter(child: _PromoBanner()),
             const SliverToBoxAdapter(child: _CategoryChips()),
+            const SliverToBoxAdapter(child: _TrendingStrip()),
             if (catalog.isLoadingFirstPage)
-              const SliverFillRemaining(
+              SliverFillRemaining(
                 hasScrollBody: false,
-                child: LoadingView(message: 'Loading the shelves…'),
+                child: ShimmerProductGrid(
+                  columns: _columnsForWidth(
+                    MediaQuery.sizeOf(context).width,
+                  ),
+                ),
               )
             else if (catalog.products.isEmpty && catalog.failure != null)
               SliverFillRemaining(
@@ -253,6 +251,173 @@ class _CategoryChips extends ConsumerWidget {
   }
 }
 
+/// A short, always-true reassurance card — no fake discount claims, since the store has no
+/// promotions system behind it.
+class _PromoBanner extends StatelessWidget {
+  const _PromoBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [AppColors.primaryRose, AppColors.accentViolet],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.storefront_rounded,
+              color: Colors.white,
+              size: 28,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Everyday low prices',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Fresh stock, straight from the shelf to you.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.9),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A horizontal strip of the store's best-selling active products, ranked by a lifetime
+/// sold count maintained server-side — a customer cannot list every order the way the
+/// owner's own best-sellers screen does, so this reads a public counter instead.
+class _TrendingStrip extends ConsumerWidget {
+  const _TrendingStrip();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final trending = ref.watch(trendingProductsProvider);
+
+    return trending.when(
+      loading: () => const SizedBox.shrink(),
+      error: (error, stackTrace) => const SizedBox.shrink(),
+      data: (products) {
+        if (products.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.local_fire_department_rounded,
+                      size: 18,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text('Best sellers', style: theme.textTheme.titleSmall),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 116,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  itemCount: products.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(width: 10),
+                  itemBuilder: (context, index) =>
+                      _TrendingTile(product: products[index]),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _TrendingTile extends StatelessWidget {
+  const _TrendingTile({required this.product});
+
+  final Product product;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: 92,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppTheme.radius),
+        onTap: () => context.go(AppRoutes.productDetailsFor(product.id)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppTheme.radius),
+              child: SizedBox(
+                width: 92,
+                height: 72,
+                child: ProductImage(product: product, iconSize: 28),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              product.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium,
+            ),
+            Text(
+              product.cashPrice.format(),
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Two columns on a phone, more as the window grows — the same grid serves a tablet and
+// the web build without a second layout. Shared with the shimmer skeleton so the first
+// load's placeholder count matches the real grid.
+int _columnsForWidth(double width) => switch (width) {
+  < 600 => 2,
+  < 900 => 3,
+  < 1200 => 4,
+  _ => 5,
+};
+
 class _ProductGrid extends ConsumerWidget {
   const _ProductGrid({required this.products, required this.onAddToCart});
 
@@ -261,15 +426,7 @@ class _ProductGrid extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final width = MediaQuery.sizeOf(context).width;
-    // Two columns on a phone, more as the window grows — the same grid serves a tablet
-    // and the web build without a second layout.
-    final columns = switch (width) {
-      < 600 => 2,
-      < 900 => 3,
-      < 1200 => 4,
-      _ => 5,
-    };
+    final columns = _columnsForWidth(MediaQuery.sizeOf(context).width);
 
     // Cards get taller as the reader's text scale goes up, so the name, both prices and
     // the add button keep their room instead of being squeezed out of the card.

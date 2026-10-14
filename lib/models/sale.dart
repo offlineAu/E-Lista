@@ -23,6 +23,7 @@ class Sale {
     required this.itemCount,
     this.completedAt,
     this.customerId,
+    this.cashierId,
   });
 
   /// Also the document id.
@@ -46,6 +47,11 @@ class Sale {
 
   final DateTime? completedAt;
   final String? customerId;
+
+  /// Who rang this up at the counter — set for a walk-in sale, `null` for a storefront
+  /// order (which has no cashier) and for any walk-in sale recorded before this field
+  /// existed.
+  final String? cashierId;
 
   /// Revenue minus what the goods cost. This is the margin on the merchandise itself and
   /// is directly comparable between cash and GCash orders.
@@ -81,6 +87,7 @@ class Sale {
     'netProfitCentavos': netProfit.centavos,
     'itemCount': itemCount,
     'customerId': customerId,
+    'cashierId': cashierId,
     'completedAt': completedAt == null
         ? FieldValue.serverTimestamp()
         : Timestamp.fromDate(completedAt!),
@@ -100,6 +107,7 @@ class Sale {
     convenienceFee: Money.fromJson(json['convenienceFeeCentavos']),
     itemCount: (json['itemCount'] as num?)?.toInt() ?? 0,
     customerId: json['customerId'] as String?,
+    cashierId: json['cashierId'] as String?,
     completedAt: switch (json['completedAt']) {
       Timestamp() => (json['completedAt']! as Timestamp).toDate(),
       _ => null,

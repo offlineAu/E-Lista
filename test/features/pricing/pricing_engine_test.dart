@@ -93,84 +93,48 @@ void main() {
     });
   });
 
-  group('GCash price — true margin, centavos preserved', () {
-    test('₱15 at a 20% margin is ₱18.75', () {
+  group('GCash price — same markup as cash, floored to a whole peso', () {
+    test('₱15 at 20% is ₱18', () {
       final price = PricingEngine.gcashBasePrice(
         cost: const Money.fromPesos(15),
-        margin: twentyPercent,
+        markup: twentyPercent,
       );
-      expect(price, const Money.fromCentavos(1875));
-      expect(price.format(), '₱18.75');
+      expect(price, const Money.fromPesos(18));
+      expect(price.format(), '₱18');
     });
 
-    test('the margin really is a share of the selling price', () {
-      final price = PricingEngine.gcashBasePrice(
-        cost: const Money.fromPesos(15),
-        margin: twentyPercent,
-      );
-      final profit = price - const Money.fromPesos(15);
-      // 20% of ₱18.75 is ₱3.75 — not the ₱3.00 a markup would give.
-      expect(profit, const Money.fromCentavos(375));
-    });
-
-    test('centavos are not flattened to whole pesos', () {
-      final price = PricingEngine.gcashBasePrice(
-        cost: const Money.fromPesos(17),
-        margin: twentyPercent,
-      );
-      expect(price, const Money.fromCentavos(2125)); // ₱21.25
-      expect(price.isWholePesos, isFalse);
-    });
-
-    test(
-      'a repeating result is rounded to the nearest centavo, not truncated',
-      () {
-        // ₱10 / (1 - 0.30) = ₱14.2857… → ₱14.29.
-        final price = PricingEngine.gcashBasePrice(
-          cost: const Money.fromPesos(10),
-          margin: const Percentage.fromPercent(30),
-        );
-        expect(price, const Money.fromCentavos(1429));
-      },
-    );
-
-    test('zero margin sells at cost', () {
-      expect(
-        PricingEngine.gcashBasePrice(
-          cost: const Money.fromCentavos(1875),
-          margin: Percentage.zero,
-        ),
-        const Money.fromCentavos(1875),
-      );
-    });
-
-    test('rejects a margin of 100% or more, which has no finite price', () {
-      expect(
-        () => PricingEngine.gcashBasePrice(
-          cost: const Money.fromPesos(15),
-          margin: const Percentage.fromPercent(100),
-        ),
-        throwsA(isA<PricingException>()),
-      );
-      expect(
-        () => PricingEngine.gcashBasePrice(
-          cost: const Money.fromPesos(15),
-          margin: const Percentage.fromPercent(150),
-        ),
-        throwsA(isA<PricingException>()),
-      );
-    });
-
-    test('is always at least the cash price for the same percentage', () {
-      for (var costCentavos = 100; costCentavos <= 20000; costCentavos += 37) {
+    test('is always identical to the cash price for the same cost', () {
+      for (var costCentavos = 100;
+          costCentavos <= 20000;
+          costCentavos += 37) {
         final cost = Money.fromCentavos(costCentavos);
         final cash = PricingEngine.cashPrice(cost: cost, markup: twentyPercent);
         final gcash = PricingEngine.gcashBasePrice(
           cost: cost,
-          margin: twentyPercent,
+          markup: twentyPercent,
         );
-        expect(gcash >= cash, isTrue, reason: 'cost ${cost.format()}');
+        expect(gcash, cash, reason: 'cost ${cost.format()}');
       }
+    });
+
+    test('zero markup sells at cost, floored', () {
+      expect(
+        PricingEngine.gcashBasePrice(
+          cost: const Money.fromCentavos(1875),
+          markup: Percentage.zero,
+        ),
+        const Money.fromPesos(18),
+      );
+    });
+
+    test('rejects a negative cost or markup', () {
+      expect(
+        () => PricingEngine.gcashBasePrice(
+          cost: const Money.fromCentavos(-1),
+          markup: twentyPercent,
+        ),
+        throwsA(isA<PricingException>()),
+      );
     });
   });
 
@@ -181,7 +145,7 @@ void main() {
         profitPercentage: twentyPercent,
       );
       expect(prices.cash, const Money.fromPesos(18));
-      expect(prices.gcashBase, const Money.fromCentavos(1875));
+      expect(prices.gcashBase, const Money.fromPesos(18));
     });
   });
 
@@ -294,9 +258,9 @@ void main() {
         expect(
           PricingEngine.gcashProfitPerUnit(
             cost: const Money.fromPesos(15),
-            gcashPrice: const Money.fromCentavos(1875),
+            gcashPrice: const Money.fromPesos(18),
           ),
-          const Money.fromCentavos(375),
+          const Money.fromPesos(3),
         );
       },
     );

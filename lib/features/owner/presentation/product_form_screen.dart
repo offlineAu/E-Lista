@@ -14,6 +14,7 @@ import '../../../routing/app_routes.dart';
 import '../../../services/product_catalog_service.dart';
 import '../../../services/product_image_service.dart';
 import '../../../services/store_functions_service.dart';
+import '../../../widgets/expiry_date_field.dart';
 import '../../../widgets/price_display.dart';
 import '../../../widgets/state_views.dart';
 import '../../pricing/domain/pricing_engine.dart';
@@ -64,6 +65,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
 
   String? _categoryId;
   PricingMode _pricingMode = PricingMode.standard;
+  DateTime? _expiryDate;
   bool _isActive = true;
   bool _isSaving = false;
   bool _hasLoadedExisting = false;
@@ -174,6 +176,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
     required Money cost,
     required String? imageUrl,
     int? initialStock,
+    DateTime? expiryDate,
   }) {
     String? trimmedOrNull(TextEditingController controller) {
       final value = controller.text.trim();
@@ -199,6 +202,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           source: widget.imported != null ? 'catalogImport' : 'manual',
           lowStockThreshold: int.tryParse(_thresholdController.text) ?? 0,
           initialStock: initialStock,
+          expiryDate: expiryDate,
           isActive: _isActive,
         );
   }
@@ -222,6 +226,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
         initialStock: _isEditing
             ? null
             : (int.tryParse(_stockController.text) ?? 0),
+        expiryDate: _isEditing ? null : _expiryDate,
       );
 
       final picked = _pickedImage;
@@ -344,13 +349,21 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
           tooltip: 'Cancel',
         ),
         actions: [
-          if (_isEditing)
+          if (_isEditing) ...[
+            IconButton(
+              onPressed: () => context.go(
+                AppRoutes.ownerProductBatchesFor(widget.productId!),
+              ),
+              icon: const Icon(Icons.inventory_2_outlined),
+              tooltip: 'Batches',
+            ),
             IconButton(
               onPressed: () =>
                   context.go(AppRoutes.ownerPriceHistoryFor(widget.productId!)),
               icon: const Icon(Icons.history),
               tooltip: 'Price history',
             ),
+          ],
         ],
       ),
       body: Form(
@@ -520,7 +533,7 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
             const SizedBox(height: 28),
             Text('Stock', style: theme.textTheme.titleMedium),
             const SizedBox(height: 12),
-            if (!_isEditing)
+            if (!_isEditing) ...[
               TextFormField(
                 controller: _stockController,
                 decoration: const InputDecoration(
@@ -532,8 +545,12 @@ class _ProductFormScreenState extends ConsumerState<ProductFormScreen> {
                 enabled: !_isSaving,
                 validator: (value) =>
                     Validators.stockQuantity(value, field: 'Starting stock'),
-              )
-            else
+              ),
+              const SizedBox(height: 8),
+              ExpiryDateField(
+                onChanged: (date) => setState(() => _expiryDate = date),
+              ),
+            ] else
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.inventory_2_outlined),
@@ -817,9 +834,9 @@ class _StoreDefaultNote extends StatelessWidget {
 
 /// Live cash and GCash prices as the owner types.
 ///
-/// Showing both, with the profit each one earns, is what makes the two formulas legible:
-/// cash marks up the cost and drops to a whole peso, GCash takes a true margin and keeps
-/// the centavos.
+/// Showing both, with the profit each one earns, is what makes the pricing legible: cash
+/// and GCash use the same markup and both drop to a whole peso, so the only GCash
+/// difference is the convenience fee added once per order.
 class _PricePreview extends StatelessWidget {
   const _PricePreview({
     required this.prices,
@@ -878,9 +895,8 @@ class _PricePreview extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'GCash earns ${gcashProfit.format()} a unit — a true margin, so the '
-              'centavos are kept. A convenience fee is added once per order, not '
-              'per item.',
+              'GCash earns ${gcashProfit.format()} a unit — the same markup as '
+              'cash. A convenience fee is added once per order, not per item.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onPrimaryContainer,
               ),

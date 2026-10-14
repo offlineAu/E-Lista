@@ -5,7 +5,8 @@
  * price before the round trip, but what a customer is charged is always what this file
  * produces from what is in Firestore.
  *
- * Mirrors `lib/features/pricing/domain/pricing_engine.dart`.
+ * Mirrors `lib/features/pricing/domain/pricing_engine.dart`. Cash and GCash share the same
+ * markup formula; only the transaction-level GCash convenience fee differs.
  */
 
 import { HttpsError } from 'firebase-functions/v2/https';
@@ -69,8 +70,7 @@ export function assertUsableProfit(basisPoints: number): number {
   if (basisPoints >= MAX_PROFIT_BASIS_POINTS) {
     throw new HttpsError(
       'invalid-argument',
-      'Profit must be below 90%. GCash pricing divides by the remaining margin, ' +
-        'so 100% has no price.',
+      'Profit must be below 90%.',
     );
   }
   return basisPoints;

@@ -175,3 +175,8 @@ final selectedCategoryProvider = StateProvider<String?>((ref) => null);
 final categoriesProvider = StreamProvider<List<ProductCategory>>((ref) {
   return ref.watch(categoryRepositoryProvider).watchActive();
 });
+
+/// The store's best-selling active products, for the Home screen's trending strip.
+final trendingProductsProvider = FutureProvider<List<Product>>((ref) {
+  return ref.watch(productRepositoryProvider).fetchTopSelling();
+});

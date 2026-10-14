@@ -50,18 +50,13 @@ class ProductPrices {
 
 /// Derives selling prices from the owner's receipt cost and profit percentage.
 ///
-/// The two payment methods use deliberately different formulas, and the difference is the
-/// point rather than an inconsistency:
+/// Cash and GCash use the same formula — a markup added on top of cost, then rounded
+/// *down* to a whole peso, because a sari-sari store quotes prices in coins and a price
+/// of ₱20.40 cannot be collected. The GCash convenience fee is then applied per
+/// transaction, not per product.
 ///
-/// * **Cash uses a markup.** The percentage is added on top of cost, then the price is
-///   rounded *down* to a whole peso, because cash in a sari-sari store is counted in coins
-///   and a price of ₱20.40 cannot be collected.
-/// * **GCash uses a true margin.** The percentage is the share of the *selling* price that
-///   is profit, so the price is `cost / (1 - margin)`. Centavos are kept, because GCash
-///   transfers are exact to the centavo.
-///
-/// At 20% on a ₱15 cost these give ₱18 and ₱18.75 respectively: the markup yields ₱3 of
-/// profit (20% of cost) and the margin yields ₱3.75 (20% of the selling price).
+/// At 20% on a ₱15 cost both methods give ₱18: ₱15 × 1.20, floored, with ₱3 of profit
+/// (20% of cost).
 ///
 /// Every method is pure and works on [Money]/[Percentage], so the results are exact and
 /// the same logic is unit-tested without Firebase. `functions/src/domain/money.ts` mirrors
@@ -84,28 +79,15 @@ abstract final class PricingEngine {
     return Money.fromPesos(wholePesos);
   }
 
-  /// The GCash base price: `cost / (1 - margin)`, rounded to the nearest centavo.
+  /// The GCash base price — same markup formula as cash, rounded down to a whole peso.
   ///
-  /// ₱15 at a 20% margin gives ₱18.75. This price is *not* rounded to whole pesos: the
-  /// centavos are what make the margin true.
+  /// ₱15 at 20% gives ₱18. The GCash convenience fee is added per transaction on top of
+  /// this, so per-product prices are identical whichever way the customer pays.
   static Money gcashBasePrice({
     required Money cost,
-    required Percentage margin,
+    required Percentage markup,
   }) {
-    _assertCost(cost);
-    _assertNotNegative(margin, 'Margin');
-    if (margin.isAtLeastWhole) {
-      throw const PricingException(
-        'A margin of 100% or more has no finite selling price. '
-        'Use a margin below 100%.',
-      );
-    }
-
-    final centavos = divideRoundHalfUp(
-      cost.centavos * Percentage.basisPointsPerUnit,
-      Percentage.basisPointsPerUnit - margin.basisPoints,
-    );
-    return Money.fromCentavos(centavos);
+    return cashPrice(cost: cost, markup: markup);
   }
 
   /// Both selling prices for a product.
@@ -115,7 +97,7 @@ abstract final class PricingEngine {
   }) {
     return ProductPrices(
       cash: cashPrice(cost: cost, markup: profitPercentage),
-      gcashBase: gcashBasePrice(cost: cost, margin: profitPercentage),
+      gcashBase: gcashBasePrice(cost: cost, markup: profitPercentage),
     );
   }
 

@@ -39,6 +39,10 @@ abstract final class AppConfig {
     'FUNCTIONS_EMULATOR_PORT',
     defaultValue: 5001,
   );
+
+  /// Region the Cloud Functions are deployed to. The SDK defaults to `us-central1`, so
+  /// without this every callable would 404 against a function living elsewhere.
+  static const String functionsRegion = 'asia-southeast1';
   static const int storageEmulatorPort = int.fromEnvironment(
     'STORAGE_EMULATOR_PORT',
     defaultValue: 9199,

@@ -64,8 +64,8 @@ class Percentage implements Comparable<Percentage> {
   bool get isZero => basisPoints == 0;
   bool get isNegative => basisPoints < 0;
 
-  /// True when the percentage is 100% or more. A *margin* of 100% has no finite price, so
-  /// the GCash calculation rejects it.
+  /// True when the percentage is 100% or more — a markup that doubles the price or more,
+  /// which no pricing form should let an owner reach unnoticed.
   bool get isAtLeastWhole => basisPoints >= basisPointsPerUnit;
 
   /// Formats for display: `20%`, `20.5%`, `20.25%`.

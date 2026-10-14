@@ -6,6 +6,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../core/utils/validators.dart';
 import '../services/barcode_scanner_service.dart';
+import 'text_prompt_dialog.dart';
 
 final barcodeScannerServiceProvider = Provider<BarcodeScannerService>((ref) {
   return const MobileBarcodeScannerService();
@@ -169,45 +170,16 @@ class _BarcodeScannerViewState extends ConsumerState<BarcodeScannerView> {
 
 /// Asks for a barcode by keyboard. Used when the camera is unavailable, unreadable, or
 /// simply slower than typing.
-Future<String?> promptForBarcode(BuildContext context) async {
-  final controller = TextEditingController();
-  final formKey = GlobalKey<FormState>();
-
-  final result = await showDialog<String>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Enter the barcode'),
-      content: Form(
-        key: formKey,
-        child: TextFormField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Barcode',
-            helperText: 'The 8 to 14 digits printed under the bars.',
-          ),
-          validator: (value) => Validators.barcode(value, isRequired: true),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () {
-            if (!(formKey.currentState?.validate() ?? false)) return;
-            Navigator.of(context).pop(controller.text.trim());
-          },
-          child: const Text('Use it'),
-        ),
-      ],
-    ),
+Future<String?> promptForBarcode(BuildContext context) {
+  return showTextPrompt(
+    context,
+    title: 'Enter the barcode',
+    label: 'Barcode',
+    helperText: 'The 8 to 14 digits printed under the bars.',
+    keyboardType: TextInputType.number,
+    confirmLabel: 'Use it',
+    validator: (String? value) => Validators.barcode(value, isRequired: true),
   );
-
-  controller.dispose();
-  return result;
 }
 
 class _ManualEntryOnly extends StatelessWidget {

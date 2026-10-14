@@ -26,17 +26,6 @@ export function assertInteger(value: number, label: string): number {
   return value;
 }
 
-/** Divides two integers, rounding half away from zero. */
-export function divideRoundHalfUp(numerator: number, denominator: number): number {
-  if (denominator === 0) {
-    throw new MoneyError('division by zero');
-  }
-  const sign = Math.sign(numerator) * Math.sign(denominator) || 1;
-  const a = Math.abs(numerator);
-  const b = Math.abs(denominator);
-  return sign * Math.floor((2 * a + b) / (2 * b));
-}
-
 /** Divides two integers, rounding towards negative infinity. */
 export function divideFloor(numerator: number, denominator: number): number {
   if (denominator === 0) {
@@ -69,29 +58,15 @@ export function cashPriceCentavos(costCentavos: number, markupBasisPoints: numbe
 }
 
 /**
- * GCash base price: a **true profit margin**, not a markup.
+ * GCash base price: the **same markup as cash**, rounded down to a whole peso.
  *
- *   gcashBasePrice = costPrice / (1 − margin)
+ *   gcashBasePrice = floor(costPrice × (1 + markup))
  *
- * ₱15.00 at a 20% margin is ₱18.75, of which exactly 20% (₱3.75) is profit. Centavos are
- * preserved — this price is not rounded to whole pesos.
+ * Per-product prices are identical however the customer pays; the GCash convenience fee
+ * is then added once per transaction at the order level.
  */
-export function gcashBasePriceCentavos(costCentavos: number, marginBasisPoints: number): number {
-  assertInteger(costCentavos, 'costPrice');
-  assertInteger(marginBasisPoints, 'margin');
-  if (costCentavos < 0) {
-    throw new MoneyError('costPrice cannot be negative');
-  }
-  if (marginBasisPoints < 0) {
-    throw new MoneyError('margin cannot be negative');
-  }
-  if (marginBasisPoints >= BASIS_POINTS_PER_UNIT) {
-    throw new MoneyError('margin must be below 100% — a 100% margin has no finite price');
-  }
-  return divideRoundHalfUp(
-    costCentavos * BASIS_POINTS_PER_UNIT,
-    BASIS_POINTS_PER_UNIT - marginBasisPoints,
-  );
+export function gcashBasePriceCentavos(costCentavos: number, markupBasisPoints: number): number {
+  return cashPriceCentavos(costCentavos, markupBasisPoints);
 }
 
 /** Formats centavos for logs and receipts: 1875 → "₱18.75", 1800 → "₱18". */

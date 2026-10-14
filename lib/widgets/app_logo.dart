@@ -1,11 +1,9 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../core/theme/app_colors.dart';
 
-/// The E-Lista brand mark: a woven *bayong* basket in deep green, with a warm yellow
-/// sun-burst behind it.
+/// The E-Lista brand mark: a tote bag with a live pulse line running through it — the bag
+/// is "store," the pulse is "system," sales moving in real time.
 ///
 /// Drawn rather than shipped as an asset so it stays crisp at any size and takes on the
 /// theme's colours in dark mode without a second file.
@@ -20,6 +18,7 @@ class AppLogo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final brand = isDark ? AppColors.primaryRoseDark : AppColors.primaryRose;
 
     return SizedBox(
       width: size,
@@ -28,13 +27,9 @@ class AppLogo extends StatelessWidget {
         label: 'E-Lista',
         child: CustomPaint(
           painter: _LogoPainter(
-            basket: isDark ? AppColors.greenOnDark : AppColors.deepGreen,
-            accent: isDark ? AppColors.yellowOnDark : AppColors.warmYellow,
-            background: showBackground
-                ? (isDark
-                      ? AppColors.darkSurfaceMuted
-                      : AppColors.greenContainer)
-                : Colors.transparent,
+            brand: brand,
+            bag: AppColors.tertiaryPinkContainer,
+            background: showBackground ? brand : Colors.transparent,
           ),
         ),
       ),
@@ -44,18 +39,18 @@ class AppLogo extends StatelessWidget {
 
 class _LogoPainter extends CustomPainter {
   const _LogoPainter({
-    required this.basket,
-    required this.accent,
+    required this.brand,
+    required this.bag,
     required this.background,
   });
 
-  final Color basket;
-  final Color accent;
+  final Color brand;
+  final Color bag;
   final Color background;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final unit = size.width / 100;
+    final unit = size.width / 96;
     final paint = Paint()..isAntiAlias = true;
 
     if (background.a > 0) {
@@ -65,70 +60,52 @@ class _LogoPainter extends CustomPainter {
       );
     }
 
-    // Sun-burst behind the basket.
-    paint.color = accent;
-    const rayCount = 7;
-    final centre = Offset(50 * unit, 44 * unit);
-    for (var i = 0; i < rayCount; i++) {
-      final angle = math.pi + (math.pi / (rayCount - 1)) * i;
-      final start =
-          centre + Offset(math.cos(angle), math.sin(angle)) * 20 * unit;
-      final end = centre + Offset(math.cos(angle), math.sin(angle)) * 31 * unit;
-      canvas.drawLine(
-        start,
-        end,
-        Paint()
-          ..color = accent
-          ..strokeWidth = 4 * unit
-          ..strokeCap = StrokeCap.round
-          ..isAntiAlias = true,
-      );
-    }
-
-    // Basket body: a trapezium, narrower at the base.
-    final body = Path()
-      ..moveTo(26 * unit, 46 * unit)
-      ..lineTo(74 * unit, 46 * unit)
-      ..lineTo(66 * unit, 80 * unit)
-      ..lineTo(34 * unit, 80 * unit)
-      ..close();
-    canvas.drawPath(body, paint..color = basket);
-
-    // Handle.
-    canvas.drawArc(
-      Rect.fromCircle(center: Offset(50 * unit, 46 * unit), radius: 17 * unit),
-      math.pi,
-      math.pi,
-      false,
+    // Handle: an arc peeking above the bag, same pale tone as the bag itself.
+    canvas.drawPath(
+      Path()
+        ..moveTo(32 * unit, 34 * unit)
+        ..quadraticBezierTo(32 * unit, 20 * unit, 48 * unit, 20 * unit)
+        ..quadraticBezierTo(64 * unit, 20 * unit, 64 * unit, 34 * unit),
       Paint()
-        ..color = basket
+        ..color = bag
         ..style = PaintingStyle.stroke
         ..strokeWidth = 5 * unit
         ..strokeCap = StrokeCap.round
         ..isAntiAlias = true,
     );
 
-    // Weave: two lighter bands across the basket.
-    final weave = Paint()
-      ..color = accent
-      ..strokeWidth = 3.5 * unit
-      ..strokeCap = StrokeCap.round
-      ..isAntiAlias = true;
-    canvas.drawLine(
-      Offset(30 * unit, 58 * unit),
-      Offset(70 * unit, 58 * unit),
-      weave,
+    // Bag body.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(22 * unit, 34 * unit, 52 * unit, 44 * unit),
+        Radius.circular(12 * unit),
+      ),
+      paint..color = bag,
     );
-    canvas.drawLine(
-      Offset(32 * unit, 69 * unit),
-      Offset(68 * unit, 69 * unit),
-      weave,
+
+    // Pulse line through the bag.
+    canvas.drawPath(
+      Path()
+        ..moveTo(28 * unit, 56 * unit)
+        ..lineTo(40 * unit, 56 * unit)
+        ..lineTo(46 * unit, 46 * unit)
+        ..lineTo(52 * unit, 64 * unit)
+        ..lineTo(58 * unit, 52 * unit)
+        ..lineTo(64 * unit, 56 * unit)
+        ..lineTo(70 * unit, 56 * unit),
+      Paint()
+        ..color = brand
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4 * unit
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..isAntiAlias = true,
     );
   }
 
   @override
   bool shouldRepaint(_LogoPainter oldDelegate) =>
-      oldDelegate.basket != basket ||
-      oldDelegate.accent != accent ||
+      oldDelegate.brand != brand ||
+      oldDelegate.bag != bag ||
       oldDelegate.background != background;
 }

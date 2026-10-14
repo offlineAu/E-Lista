@@ -128,6 +128,30 @@ class ProductRepository {
     );
   }
 
+  /// The most-sold active products, for a "trending" strip on the storefront.
+  ///
+  /// Ranked by [Product.unitsSoldTotal] — a lifetime counter maintained server-side as
+  /// sales are rung up — rather than by anything computed from `orders/`, since a customer
+  /// cannot list every order the way the owner can. This is the one query that field
+  /// exists for.
+  Future<List<Product>> fetchTopSelling({int limit = 6}) {
+    return ErrorMapper.guard(
+      () async {
+        final snapshot = await _products
+            .where('isActive', isEqualTo: true)
+            .orderBy('unitsSoldTotal', descending: true)
+            .limit(limit)
+            .get();
+        return snapshot.docs
+            .map(Product.fromFirestore)
+            .where((product) => product.unitsSoldTotal > 0)
+            .toList();
+      },
+      operation: 'load trending products',
+      timeout: AppConfig.backendTimeout,
+    );
+  }
+
   /// Finds the active product carrying [barcode], or `null`.
   ///
   /// Used by both scanners: the customer's, to jump straight to a product on the shelf,

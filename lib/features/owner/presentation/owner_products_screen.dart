@@ -6,6 +6,7 @@ import '../../../models/product.dart';
 import '../../../routing/app_routes.dart';
 import '../../../widgets/price_display.dart';
 import '../../../widgets/product_card.dart';
+import '../../../widgets/shimmer_loading.dart';
 import '../../../widgets/state_views.dart';
 import '../application/owner_product_providers.dart';
 
@@ -71,6 +72,7 @@ class OwnerProductsScreen extends ConsumerWidget {
             child: AsyncView<List<Product>>(
               value: products,
               onRetry: () => ref.invalidate(ownerCatalogProvider),
+              loadingBuilder: (context) => const ShimmerListSkeleton(),
               builder: (context, list) {
                 if (list.isEmpty) {
                   return EmptyView(

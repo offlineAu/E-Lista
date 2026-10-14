@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/providers/firebase_providers.dart';
 import '../../../models/price_history_entry.dart';
 import '../../../models/product.dart';
+import '../../../models/product_batch.dart';
 import '../../../repositories/owner_product_repository.dart';
 
 final ownerProductRepositoryProvider = Provider<OwnerProductRepository>((ref) {
@@ -45,6 +46,18 @@ final storePriceHistoryProvider = StreamProvider<List<PriceHistoryEntry>>((
   ref,
 ) {
   return ref.watch(ownerProductRepositoryProvider).watchAllPriceHistory();
+});
+
+/// One product's batches, oldest-expiring first.
+final productBatchesProvider = StreamProvider.autoDispose
+    .family<List<ProductBatch>, String>((ref, productId) {
+      return ref.watch(ownerProductRepositoryProvider).watchBatches(productId);
+    });
+
+/// Batches expiring within a week, across the whole store — the "act before it's wasted"
+/// list FEFO exists to enable.
+final expiringBatchesProvider = StreamProvider<List<ProductBatch>>((ref) {
+  return ref.watch(ownerProductRepositoryProvider).watchExpiringSoon();
 });
 
 /// The owner's product-list search box.

@@ -150,18 +150,4 @@ void main() {
       );
     });
   });
-
-  group('divideRoundHalfUp', () {
-    test('rounds halves away from zero', () {
-      expect(divideRoundHalfUp(5, 2), 3);
-      expect(divideRoundHalfUp(-5, 2), -3);
-      expect(divideRoundHalfUp(4, 2), 2);
-      expect(divideRoundHalfUp(1, 3), 0);
-      expect(divideRoundHalfUp(2, 3), 1);
-    });
-
-    test('refuses division by zero', () {
-      expect(() => divideRoundHalfUp(1, 0), throwsA(isA<MoneyException>()));
-    });
-  });
 }

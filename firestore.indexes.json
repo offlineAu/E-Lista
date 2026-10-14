@@ -49,6 +49,24 @@
       ]
     },
     {
+      "//": "ProductRepository.fetchTopSelling — the customer home screen's trending strip.",
+      "collectionGroup": "products",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isActive", "order": "ASCENDING" },
+        { "fieldPath": "unitsSoldTotal", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "CategoryRepository.watchActive/fetchActive — the customer category chip row.",
+      "collectionGroup": "categories",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isActive", "order": "ASCENDING" },
+        { "fieldPath": "sortOrder", "order": "ASCENDING" }
+      ]
+    },
+    {
       "//": "OrderRepository.watchForCustomer — a shopper's own history.",
       "collectionGroup": "orders",
       "queryScope": "COLLECTION",
@@ -86,6 +104,15 @@
       ]
     },
     {
+      "//": "OrderRepository.fetchCompletedBetween — best sellers and reorder suggestions.",
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "completedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "//": "InventoryRepository.watchForProduct — one product's ledger.",
       "collectionGroup": "inventoryTransactions",
       "queryScope": "COLLECTION",
@@ -110,6 +137,15 @@
       "fields": [
         { "fieldPath": "productId", "order": "ASCENDING" },
         { "fieldPath": "changedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "FEFO consumption (placeOrder, adjustInventory auto-select) and OwnerProductRepository.watchBatches — oldest-expiring first.",
+      "collectionGroup": "productBatches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "productId", "order": "ASCENDING" },
+        { "fieldPath": "expiryDate", "order": "ASCENDING" }
       ]
     }
   ],

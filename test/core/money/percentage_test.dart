@@ -9,7 +9,7 @@ void main() {
       expect(Percentage.zero.basisPoints, 0);
     });
 
-    test('isAtLeastWhole marks the margins that have no finite price', () {
+    test('isAtLeastWhole marks a markup of 100% or more', () {
       expect(const Percentage.fromPercent(99).isAtLeastWhole, isFalse);
       expect(const Percentage.fromBasisPoints(9999).isAtLeastWhole, isFalse);
       expect(const Percentage.fromPercent(100).isAtLeastWhole, isTrue);

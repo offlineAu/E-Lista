@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../core/errors/error_mapper.dart';
 import '../features/pricing/domain/gcash_fee_schedule.dart';
+import '../models/gcash_qr_settings.dart';
 import '../models/pricing_settings.dart';
 
 /// Reads the store's pricing configuration from `settings/*`.
@@ -13,6 +14,8 @@ import '../models/pricing_settings.dart';
 ///   already materialised on each product.
 /// * `settings/gcash_fees` — the convenience fee tiers. World-readable, because a customer
 ///   must be able to see the fee that will be added before they confirm an order.
+/// * `settings/gcash_qr` — the store's GCash "Scan to Pay" QR code image. World-readable,
+///   same reason as the fee tiers.
 ///
 /// Writes go through Cloud Functions, which revalidate and re-price affected products;
 /// this class only reads.
@@ -24,12 +27,16 @@ class SettingsRepository {
   static const String collectionPath = 'settings';
   static const String pricingDocumentId = 'pricing';
   static const String gcashFeesDocumentId = 'gcash_fees';
+  static const String gcashQrDocumentId = 'gcash_qr';
 
   DocumentReference<Map<String, Object?>> get _pricingDocument =>
       _firestore.collection(collectionPath).doc(pricingDocumentId);
 
   DocumentReference<Map<String, Object?>> get _gcashFeesDocument =>
       _firestore.collection(collectionPath).doc(gcashFeesDocumentId);
+
+  DocumentReference<Map<String, Object?>> get _gcashQrDocument =>
+      _firestore.collection(collectionPath).doc(gcashQrDocumentId);
 
   /// Streams the store-wide pricing settings, falling back to the defaults while the
   /// document does not exist.
@@ -69,5 +76,13 @@ class SettingsRepository {
     final data = snapshot.data();
     if (data == null) return GcashFeeSchedule.defaultSchedule;
     return GcashFeeSchedule.fromJson(data['tiers']);
+  }
+
+  /// Streams the store's GCash QR code, or [GcashQrSettings.none] before the owner has
+  /// uploaded one.
+  Stream<GcashQrSettings> watchGcashQr() {
+    return _gcashQrDocument.snapshots().map(
+      (snapshot) => GcashQrSettings.fromJson(snapshot.data()),
+    );
   }
 }

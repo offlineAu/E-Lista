@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/money/money.dart';
 import '../../../core/providers/repository_providers.dart';
 import '../../../core/utils/validators.dart';
 import '../../../models/inventory_transaction.dart';
 import '../../../models/product.dart';
+import '../../../models/product_batch.dart' show expiringSoonValue;
 import '../../../routing/app_routes.dart';
+import '../../../widgets/expiry_date_field.dart';
 import '../../../widgets/price_display.dart';
 import '../../../widgets/state_views.dart';
+import '../../auth/application/auth_controller.dart';
 import '../application/dashboard_providers.dart';
 import '../application/owner_product_providers.dart';
+import 'widgets/cashier_logout_action.dart';
 
 /// Stock on hand, with the low ones first and a way to correct any of them.
 ///
@@ -26,6 +31,9 @@ class OwnerInventoryScreen extends ConsumerWidget {
     final theme = Theme.of(context);
     final catalog = ref.watch(ownerCatalogProvider);
     final lowStock = ref.watch(lowStockProvider).valueOrNull ?? const [];
+    final expiringSoon =
+        ref.watch(expiringBatchesProvider).valueOrNull ?? const [];
+    final isCashier = ref.watch(isCashierProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -36,13 +44,18 @@ class OwnerInventoryScreen extends ConsumerWidget {
             icon: const Icon(Icons.history),
             tooltip: 'Inventory history',
           ),
+          const CashierLogoutAction(),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.go(AppRoutes.ownerScanRestock),
-        icon: const Icon(Icons.qr_code_scanner),
-        label: const Text('Scan restock'),
-      ),
+      // Restocking can carry a new cost, which re-prices the product — owner-only, so a
+      // cashier never sees the entry point for it.
+      floatingActionButton: isCashier
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => context.go(AppRoutes.ownerScanRestock),
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text('Scan restock'),
+            ),
       body: AsyncView<List<Product>>(
         value: catalog,
         onRetry: () => ref.invalidate(ownerCatalogProvider),
@@ -95,6 +108,41 @@ class OwnerInventoryScreen extends ConsumerWidget {
                   ),
                 ),
               if (lowStock.isNotEmpty) const SizedBox(height: 12),
+              if (expiringSoon.isNotEmpty)
+                Card(
+                  color: theme.colorScheme.errorContainer,
+                  child: InkWell(
+                    onTap: () => context.go(AppRoutes.ownerExpiringBatches),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.event_busy_outlined,
+                            color: theme.colorScheme.onErrorContainer,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              '${expiringSoon.length} '
+                              '${expiringSoon.length == 1 ? 'batch expires' : 'batches expire'} '
+                              'within 7 days — worth '
+                              '${expiringSoonValue(expiringSoon).format()}.',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onErrorContainer,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.chevron_right,
+                            color: theme.colorScheme.onErrorContainer,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              if (expiringSoon.isNotEmpty) const SizedBox(height: 12),
               for (final product in sorted)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -170,22 +218,28 @@ class _InventoryTile extends ConsumerWidget {
 /// Records a stock movement against [product].
 ///
 /// Shared by the inventory list and the product screen so the same rules — a reason for an
-/// adjustment, a cost only with a restock — apply wherever stock is touched.
+/// adjustment, a cost only with a restock — apply wherever stock is touched. [initialQuantity],
+/// when given, pre-fills the quantity — the Best Sellers reorder suggestion's "Order N"
+/// button opens straight onto the amount it recommended, rather than making the owner retype
+/// it.
 Future<void> showStockMovementSheet(
   BuildContext context,
-  Product product,
-) async {
+  Product product, {
+  int? initialQuantity,
+}) async {
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    builder: (context) => _StockMovementSheet(product: product),
+    builder: (context) =>
+        _StockMovementSheet(product: product, initialQuantity: initialQuantity),
   );
 }
 
 class _StockMovementSheet extends ConsumerStatefulWidget {
-  const _StockMovementSheet({required this.product});
+  const _StockMovementSheet({required this.product, this.initialQuantity});
 
   final Product product;
+  final int? initialQuantity;
 
   @override
   ConsumerState<_StockMovementSheet> createState() =>
@@ -194,14 +248,36 @@ class _StockMovementSheet extends ConsumerStatefulWidget {
 
 class _StockMovementSheetState extends ConsumerState<_StockMovementSheet> {
   final _formKey = GlobalKey<FormState>();
-  final _quantityController = TextEditingController(text: '1');
+  late final _quantityController = TextEditingController(
+    text: '${widget.initialQuantity ?? 1}',
+  );
   final _reasonController = TextEditingController();
   final _costController = TextEditingController();
 
-  InventoryTransactionType _type = InventoryTransactionType.restock;
+  late InventoryTransactionType _type;
   bool _isDecrease = false;
   bool _updateCost = false;
   bool _isSaving = false;
+  DateTime? _expiryDate;
+  String? _selectedBatchId;
+
+  /// Whether the current type/direction combination removes stock from a specific batch —
+  /// the only case a batch picker (or FEFO auto-selection) applies to.
+  bool get _isWriteOff =>
+      _type == InventoryTransactionType.damage ||
+      _type == InventoryTransactionType.expired ||
+      (_type == InventoryTransactionType.adjustment && _isDecrease);
+
+  @override
+  void initState() {
+    super.initState();
+    // A cashier cannot record a restock (it can carry a cost change), so their sheet opens
+    // on the first type they are actually allowed to use.
+    final isCashier = ref.read(isCashierProvider);
+    _type = isCashier
+        ? InventoryTransactionType.adjustment
+        : InventoryTransactionType.restock;
+  }
 
   @override
   void dispose() {
@@ -230,6 +306,10 @@ class _StockMovementSheetState extends ConsumerState<_StockMovementSheet> {
                 : null,
             isDecrease:
                 _type == InventoryTransactionType.adjustment && _isDecrease,
+            expiryDate: _type == InventoryTransactionType.restock
+                ? _expiryDate
+                : null,
+            batchId: _isWriteOff ? _selectedBatchId : null,
           );
 
       if (!mounted) return;
@@ -251,6 +331,12 @@ class _StockMovementSheetState extends ConsumerState<_StockMovementSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isCashier = ref.watch(isCashierProvider);
+    final availableTypes = isCashier
+        ? InventoryTransactionType.manuallyRecordable
+              .where((type) => type != InventoryTransactionType.restock)
+              .toList()
+        : InventoryTransactionType.manuallyRecordable;
 
     return Padding(
       padding: EdgeInsets.only(
@@ -281,8 +367,7 @@ class _StockMovementSheetState extends ConsumerState<_StockMovementSheet> {
                   prefixIcon: Icon(Icons.swap_vert),
                 ),
                 items: [
-                  for (final type
-                      in InventoryTransactionType.manuallyRecordable)
+                  for (final type in availableTypes)
                     DropdownMenuItem(value: type, child: Text(type.label)),
                 ],
                 onChanged: _isSaving
@@ -292,6 +377,7 @@ class _StockMovementSheetState extends ConsumerState<_StockMovementSheet> {
                         setState(() {
                           _type = value;
                           if (!value.acceptsCostUpdate) _updateCost = false;
+                          _selectedBatchId = null;
                         });
                       },
               ),
@@ -314,8 +400,10 @@ class _StockMovementSheetState extends ConsumerState<_StockMovementSheet> {
                   showSelectedIcon: false,
                   onSelectionChanged: _isSaving
                       ? null
-                      : (selection) =>
-                            setState(() => _isDecrease = selection.first),
+                      : (selection) => setState(() {
+                          _isDecrease = selection.first;
+                          _selectedBatchId = null;
+                        }),
                 ),
               ],
               const SizedBox(height: 16),
@@ -370,6 +458,20 @@ class _StockMovementSheetState extends ConsumerState<_StockMovementSheet> {
                     validator: _updateCost ? Validators.costPrice : null,
                   ),
               ],
+              if (_type == InventoryTransactionType.restock) ...[
+                const SizedBox(height: 8),
+                ExpiryDateField(
+                  onChanged: (date) => setState(() => _expiryDate = date),
+                ),
+              ],
+              if (_isWriteOff)
+                _BatchPicker(
+                  productId: widget.product.id,
+                  selectedBatchId: _selectedBatchId,
+                  enabled: !_isSaving,
+                  onChanged: (batchId) =>
+                      setState(() => _selectedBatchId = batchId),
+                ),
               const SizedBox(height: 20),
               FilledButton(
                 onPressed: _isSaving ? null : _submit,
@@ -388,6 +490,61 @@ class _StockMovementSheetState extends ConsumerState<_StockMovementSheet> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Which batch a write-off comes from — left on "Auto" unless the owner has a reason to
+/// pick a specific one, since the default already does the sensible thing (oldest first).
+///
+/// Renders nothing for a product with no batches yet: leaving the picker off the form
+/// entirely is clearer than showing a dropdown with only "Auto" in it.
+class _BatchPicker extends ConsumerWidget {
+  const _BatchPicker({
+    required this.productId,
+    required this.selectedBatchId,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final String productId;
+  final String? selectedBatchId;
+  final bool enabled;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final batches =
+        ref.watch(productBatchesProvider(productId)).valueOrNull ?? const [];
+    final available = batches.where((batch) => !batch.isDepleted).toList();
+    if (available.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: DropdownButtonFormField<String?>(
+        initialValue: selectedBatchId,
+        decoration: const InputDecoration(
+          labelText: 'Which batch',
+          prefixIcon: Icon(Icons.inventory_2_outlined),
+        ),
+        items: [
+          const DropdownMenuItem(
+            value: null,
+            child: Text('Auto — oldest first (FEFO)'),
+          ),
+          for (final batch in available)
+            DropdownMenuItem(
+              value: batch.id,
+              child: Text(
+                'From ${DateFormat.yMMMd().format(batch.receivedAt ?? DateTime.now())} · '
+                '${batch.remainingQuantity} left · '
+                '${batch.hasExpiry ? 'expires ${DateFormat.yMMMd().format(batch.expiryDate)}' : 'no expiry'}',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+        ],
+        onChanged: enabled ? onChanged : null,
       ),
     );
   }

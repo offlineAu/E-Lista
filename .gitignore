@@ -52,6 +52,10 @@ functions/.secret.local
 # Firebase
 .firebase/
 firebase-debug.log
+
+# Local emulator data, exported between runs so Auth/Firestore state survives a restart.
+# See docs/DEVELOPMENT.md.
+/emulator-data/
 firestore-debug.log
 ui-debug.log
 

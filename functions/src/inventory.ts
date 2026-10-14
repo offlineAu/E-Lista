@@ -10,12 +10,14 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 
+import { allocateFefo, type BatchDraw } from './domain/fefo';
 import {
   effectiveProfitBasisPoints,
   parsePricingMode,
   pricesFor,
   DEFAULT_PROFIT_BASIS_POINTS,
 } from './domain/pricing';
+import { batchDoc, batchesQueryForFefo, toBatchAvailability, writeNewBatch } from './lib/batches';
 import {
   asObject,
   db,
@@ -25,7 +27,7 @@ import {
   pricingSettingsDoc,
   productPricingDoc,
   requireInt,
-  requireOwner,
+  requireOwnerOrCashier,
   requireString,
 } from './lib/context';
 import { writePriceHistory } from './products';
@@ -60,9 +62,19 @@ function parseType(value: unknown): ManualType {
  * A restock may carry a new receipt cost. When it does, the product is re-priced and a
  * price-history row is appended — a delivery at a new price is the normal way a sari-sari
  * store's costs change, and it should not require a second trip to the edit screen.
+ *
+ * A cashier may record everything here except a restock or a cost change — those are the
+ * two ways this function can move a price, which stays owner-only.
+ *
+ * A restock always opens a new batch, carrying whatever expiry date came with it. Damage,
+ * expired and a downward adjustment always draw down a specific batch when the product has
+ * any — an explicit `batchId` targets one directly, and leaving it out auto-selects via the
+ * same FEFO rule a sale uses, so a write-off comes off the oldest stock by default. A
+ * product with no batches yet (never restocked with a date) behaves exactly as before this
+ * feature existed: no batch is touched, only the flat stock count.
  */
 export const adjustInventory = onCall(async (request) => {
-  const caller = requireOwner(request);
+  const caller = requireOwnerOrCashier(request);
   const data = asObject(request.data);
 
   const productId = requireString(data, 'productId', { maxLength: 128 });
@@ -73,9 +85,17 @@ export const adjustInventory = onCall(async (request) => {
     min: 0,
     max: 100_000_000,
   });
+  const expiryDateMillis = optionalInt(data, 'expiryDateMillis', { min: 0 });
+  const batchId = optionalString(data, 'batchId', { maxLength: 128 });
 
   const direction = DIRECTION[type] ?? (data.direction === 'decrease' ? -1 : 1);
   const signedQuantity = direction * quantity;
+  const isDecrease = signedQuantity < 0;
+  const batchIdAllowed =
+    type === 'damage' ||
+    type === 'expired' ||
+    type === 'returned' ||
+    (type === 'adjustment' && isDecrease);
 
   if (type === 'adjustment' && reason === undefined) {
     throw new HttpsError(
@@ -89,6 +109,24 @@ export const adjustInventory = onCall(async (request) => {
       'A new cost can only be recorded with a restock.',
     );
   }
+  if (caller.role === 'cashier' && (type === 'restock' || unitCostCentavos !== undefined)) {
+    throw new HttpsError(
+      'permission-denied',
+      'Only the store owner can record a restock or change a cost.',
+    );
+  }
+  if (expiryDateMillis !== undefined && type !== 'restock') {
+    throw new HttpsError(
+      'invalid-argument',
+      'An expiry date can only be recorded with a restock.',
+    );
+  }
+  if (batchId !== undefined && !batchIdAllowed) {
+    throw new HttpsError(
+      'invalid-argument',
+      'A batch cannot be chosen for this kind of movement.',
+    );
+  }
 
   const storeDefaultSnapshot = await pricingSettingsDoc().get();
   const storeDefault =
@@ -97,6 +135,9 @@ export const adjustInventory = onCall(async (request) => {
       : DEFAULT_PROFIT_BASIS_POINTS;
 
   const productRef = db.collection(paths.products).doc(productId);
+  // A write-off (damage/expired/adjustment-decrease) draws down a batch, either the one
+  // named or, failing that, whichever this product has that isn't already exhausted.
+  const drawsFromBatches = isDecrease && type !== 'restock';
 
   return db.runTransaction(async (transaction) => {
     const productSnapshot = await transaction.get(productRef);
@@ -104,6 +145,18 @@ export const adjustInventory = onCall(async (request) => {
       throw new HttpsError('not-found', 'That product could not be found.');
     }
     const costSnapshot = await transaction.get(productPricingDoc(productId));
+
+    // All reads must happen before any write in a Firestore transaction, so the batch(es)
+    // this movement will touch are read here, before the product/price/ledger writes below.
+    let targetBatchSnapshot: FirebaseFirestore.DocumentSnapshot | undefined;
+    let fefoBatchSnapshots: FirebaseFirestore.QuerySnapshot | undefined;
+    if (drawsFromBatches) {
+      if (batchId !== undefined) {
+        targetBatchSnapshot = await transaction.get(batchDoc(batchId));
+      } else {
+        fefoBatchSnapshots = await transaction.get(batchesQueryForFefo(productId));
+      }
+    }
 
     const product = productSnapshot.data() as Record<string, unknown>;
     const productName = typeof product.name === 'string' ? product.name : 'Product';
@@ -116,6 +169,40 @@ export const adjustInventory = onCall(async (request) => {
         `There are only ${previousStock} of ${productName} on hand, ` +
           `so ${quantity} cannot be removed.`,
       );
+    }
+
+    // Which batch(es) this write-off comes from, decided now that the reads are in hand.
+    const batchDraws: BatchDraw[] = [];
+    if (drawsFromBatches) {
+      if (targetBatchSnapshot) {
+        if (!targetBatchSnapshot.exists) {
+          throw new HttpsError('not-found', 'That batch could not be found.');
+        }
+        const batchData = targetBatchSnapshot.data() as Record<string, unknown>;
+        if (batchData.productId !== productId) {
+          throw new HttpsError(
+            'invalid-argument',
+            'That batch belongs to a different product.',
+          );
+        }
+        const remaining = Number(batchData.remainingQuantity ?? 0);
+        if (remaining < quantity) {
+          throw new HttpsError(
+            'failed-precondition',
+            `Only ${remaining} left in that batch, so ${quantity} cannot be removed from it.`,
+          );
+        }
+        batchDraws.push({
+          batchId: targetBatchSnapshot.id,
+          quantity,
+          unitCostCentavos: Number(batchData.unitCostCentavos ?? 0),
+        });
+      } else if (fefoBatchSnapshots && !fefoBatchSnapshots.empty) {
+        const availability = fefoBatchSnapshots.docs.map(toBatchAvailability);
+        // A shortfall here just means part of this write-off is untracked (pre-batch)
+        // stock, same as placeOrder — the batches that do exist still get decremented.
+        batchDraws.push(...allocateFefo(availability, quantity).draws);
+      }
     }
 
     const threshold = Number(product.lowStockThreshold ?? 0);
@@ -176,7 +263,37 @@ export const adjustInventory = onCall(async (request) => {
 
     transaction.update(productRef, productUpdates);
 
-    transaction.set(db.collection(paths.inventoryTransactions).doc(), {
+    // Minted before the ledger write so a new batch (or the ledger row itself) can carry
+    // the other's id for cross-reference.
+    const ledgerRef = db.collection(paths.inventoryTransactions).doc();
+
+    let createdBatchId: string | null = null;
+    if (type === 'restock') {
+      const newBatchRef = writeNewBatch(transaction, {
+        productId,
+        productName,
+        quantity,
+        unitCostCentavos: unitCostCentavos ?? previousCost,
+        expiryDateMillis,
+        sourceReferenceType: 'manual',
+        sourceTransactionId: ledgerRef.id,
+        performedBy: caller.uid,
+        performedByName: caller.name,
+      });
+      createdBatchId = newBatchRef.id;
+    } else if (type === 'returned' && batchId !== undefined) {
+      transaction.update(batchDoc(batchId), {
+        remainingQuantity: FieldValue.increment(quantity),
+      });
+    } else {
+      for (const draw of batchDraws) {
+        transaction.update(batchDoc(draw.batchId), {
+          remainingQuantity: FieldValue.increment(-draw.quantity),
+        });
+      }
+    }
+
+    transaction.set(ledgerRef, {
       productId,
       productName,
       type,
@@ -187,6 +304,11 @@ export const adjustInventory = onCall(async (request) => {
       referenceId: null,
       unitCostCentavos: unitCostCentavos ?? null,
       reason: reason ?? null,
+      batchId: createdBatchId ?? (type === 'returned' ? batchId ?? null : null),
+      batchDraws: batchDraws.map((draw) => ({
+        batchId: draw.batchId,
+        quantity: draw.quantity,
+      })),
       performedBy: caller.uid,
       performedByName: caller.name ?? null,
       createdAt: FieldValue.serverTimestamp(),

@@ -4,6 +4,7 @@ import '../core/config/app_config.dart';
 import '../core/errors/error_mapper.dart';
 import '../core/money/money.dart';
 import '../core/money/percentage.dart';
+import '../features/owner/domain/pos_ticket.dart';
 import '../features/pricing/domain/gcash_fee_schedule.dart';
 import '../features/pricing/domain/pricing_engine.dart';
 import '../models/cart.dart';
@@ -37,6 +38,73 @@ class PlacedOrder {
     convenienceFee: Money.fromJson(json['convenienceFeeCentavos']),
     total: Money.fromJson(json['totalCentavos']),
   );
+}
+
+/// What the server booked for a cashier's walk-in sale.
+///
+/// Returned by [StoreFunctionsService.placeWalkInSale]. [amountTendered]/[changeDue] are
+/// `null` for GCash — see [StoreOrder.amountTendered] for why that is not `total`/zero.
+class PlacedWalkInSale {
+  const PlacedWalkInSale({
+    required this.orderId,
+    required this.orderNumber,
+    required this.subtotal,
+    required this.convenienceFee,
+    required this.total,
+    required this.paymentMethod,
+    this.amountTendered,
+    this.changeDue,
+  });
+
+  final String orderId;
+  final String orderNumber;
+  final Money subtotal;
+  final Money convenienceFee;
+  final Money total;
+  final PaymentMethod paymentMethod;
+  final Money? amountTendered;
+  final Money? changeDue;
+
+  static PlacedWalkInSale fromJson(
+    Map<String, Object?> json,
+    PaymentMethod paymentMethod,
+  ) => PlacedWalkInSale(
+    orderId: (json['orderId'] as String?) ?? '',
+    orderNumber: (json['orderNumber'] as String?) ?? '',
+    subtotal: Money.fromJson(json['subtotalCentavos']),
+    convenienceFee: Money.fromJson(json['convenienceFeeCentavos']),
+    total: Money.fromJson(json['totalCentavos']),
+    paymentMethod: paymentMethod,
+    amountTendered: json['amountTenderedCentavos'] == null
+        ? null
+        : Money.fromJson(json['amountTenderedCentavos']),
+    changeDue: json['changeCentavos'] == null
+        ? null
+        : Money.fromJson(json['changeCentavos']),
+  );
+}
+
+/// What the server recorded for an end-of-shift cash count.
+class RecordedCashCount {
+  const RecordedCashCount({
+    required this.expected,
+    required this.counted,
+    required this.difference,
+  });
+
+  final Money expected;
+  final Money counted;
+
+  /// `counted - expected`. Positive means the drawer had more than expected, negative
+  /// means it came up short.
+  final Money difference;
+
+  static RecordedCashCount fromJson(Map<String, Object?> json) =>
+      RecordedCashCount(
+        expected: Money.fromJson(json['expectedCentavos']),
+        counted: Money.fromJson(json['countedCentavos']),
+        difference: Money.fromJson(json['differenceCentavos']),
+      );
 }
 
 /// The prices the server derived after saving a product.
@@ -134,6 +202,37 @@ class StoreFunctionsService {
     }, operation: 'place your order');
   }
 
+  /// Rings up a walk-in sale at the register. Owner or cashier.
+  ///
+  /// Unlike [placeOrder], this books straight to [OrderStatus.completed] — a sale at the
+  /// counter has already happened by the time this is called, so there is no pending state
+  /// to walk through. [amountTendered] is required for cash and ignored for GCash, which is
+  /// exact by construction; the server (never this client) decides the change due.
+  Future<PlacedWalkInSale> placeWalkInSale({
+    required PosTicket ticket,
+    required PaymentMethod paymentMethod,
+    Money? amountTendered,
+    String? customerName,
+    Money? expectedTotal,
+  }) {
+    return ErrorMapper.guard(() async {
+      final response = await _callable('placeWalkInSale').call<Object?>({
+        'items': [
+          for (final line in ticket.lines)
+            {'productId': line.productId, 'quantity': line.quantity},
+        ],
+        'paymentMethod': paymentMethod.id,
+        if (amountTendered != null)
+          'amountTenderedCentavos': amountTendered.centavos,
+        if (customerName != null && customerName.trim().isNotEmpty)
+          'customerName': customerName.trim(),
+        if (expectedTotal != null)
+          'expectedTotalCentavos': expectedTotal.centavos,
+      });
+      return PlacedWalkInSale.fromJson(_asMap(response.data), paymentMethod);
+    }, operation: 'complete the sale');
+  }
+
   /// Moves an order to its next status. Owner only.
   Future<void> updateOrderStatus({
     required String orderId,
@@ -169,6 +268,7 @@ class StoreFunctionsService {
     String source = 'manual',
     int lowStockThreshold = 0,
     int? initialStock,
+    DateTime? expiryDate,
     bool isActive = true,
   }) {
     return ErrorMapper.guard(() async {
@@ -189,6 +289,8 @@ class StoreFunctionsService {
         'profitBasisPoints': profitPercentage?.basisPoints,
         'lowStockThreshold': lowStockThreshold,
         'initialStock': ?initialStock,
+        if (expiryDate != null)
+          'expiryDateMillis': expiryDate.toUtc().millisecondsSinceEpoch,
         'isActive': isActive,
       });
       return SavedProduct.fromJson(_asMap(response.data));
@@ -207,10 +309,16 @@ class StoreFunctionsService {
     }, operation: 'update the product');
   }
 
-  /// Records a stock movement. Owner only.
+  /// Records a stock movement. A cashier may record everything except a restock or a cost
+  /// change — the server enforces that, this just doesn't offer it in the UI.
   ///
   /// [quantity] is always a positive count; the [type] decides the direction, except for
   /// an adjustment, where [isDecrease] says which way the physical recount went.
+  ///
+  /// [expiryDate] only means anything with a restock, where it opens a new batch. [batchId]
+  /// only means anything for a movement that removes stock (damage, expired, a decreasing
+  /// adjustment) or a manual return: naming a batch targets it directly; leaving it out lets
+  /// the server auto-select the oldest-expiring batch instead.
   Future<InventoryChange> adjustInventory({
     required String productId,
     required InventoryTransactionType type,
@@ -218,6 +326,8 @@ class StoreFunctionsService {
     String? reason,
     Money? unitCost,
     bool isDecrease = false,
+    DateTime? expiryDate,
+    String? batchId,
   }) {
     return ErrorMapper.guard(() async {
       final response = await _callable('adjustInventory').call<Object?>({
@@ -227,9 +337,31 @@ class StoreFunctionsService {
         'reason': reason,
         if (unitCost != null) 'unitCostCentavos': unitCost.centavos,
         'direction': isDecrease ? 'decrease' : 'increase',
+        if (expiryDate != null)
+          'expiryDateMillis': expiryDate.toUtc().millisecondsSinceEpoch,
+        'batchId': ?batchId,
       });
       return InventoryChange.fromJson(_asMap(response.data));
     }, operation: 'update the stock');
+  }
+
+  /// Logs an end-of-shift cash-drawer count against what was expected. Owner or cashier.
+  ///
+  /// A snapshot for the owner to review later, not a live balance — [expected] and
+  /// [counted] are both amounts the caller worked out beforehand.
+  Future<RecordedCashCount> recordCashCount({
+    required Money expected,
+    required Money counted,
+    String? note,
+  }) {
+    return ErrorMapper.guard(() async {
+      final response = await _callable('recordCashCount').call<Object?>({
+        'expectedCentavos': expected.centavos,
+        'countedCentavos': counted.centavos,
+        'note': note,
+      });
+      return RecordedCashCount.fromJson(_asMap(response.data));
+    }, operation: 'record the cash count');
   }
 
   /// Sets the store-wide default profit percentage. Owner only.
@@ -258,6 +390,16 @@ class StoreFunctionsService {
         'saveGcashFeeTiers',
       ).call<Object?>({'tiers': schedule.toJson()});
     }, operation: 'save the GCash fees');
+  }
+
+  /// Sets or clears the store's GCash "Scan to Pay" QR code. Owner only.
+  ///
+  /// [imageUrl] is a Storage download URL already uploaded by the client — this call just
+  /// records it. Pass `null` to remove the QR code and stop showing it at checkout.
+  Future<void> saveGcashQr(String? imageUrl) {
+    return ErrorMapper.guard(() async {
+      await _callable('saveGcashQr').call<Object?>({'imageUrl': imageUrl});
+    }, operation: 'save the GCash QR code');
   }
 
   /// Writes the categories and settings a brand-new store needs. Owner only, idempotent.

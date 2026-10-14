@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../core/errors/app_failure.dart';
 import '../core/errors/error_mapper.dart';
@@ -206,6 +207,10 @@ class FirebaseAuthService implements AuthService {
     return ErrorMapper.guard(() async {
       if (user.isAnonymous) return UserRole.guest;
       final token = await user.getIdTokenResult(forceRefresh);
+      debugPrint(
+        'e_lista: raw claims for ${user.uid} (forceRefresh=$forceRefresh) = '
+        '${token.claims}',
+      );
       return UserRole.fromJson(token.claims?['role']);
     }, operation: 'check your account');
   }

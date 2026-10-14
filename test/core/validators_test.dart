@@ -39,7 +39,7 @@ void main() {
     });
 
     test('refuses a percentage at or above the ceiling', () {
-      // The GCash formula divides by what is left of the margin, so 100% has no price.
+      // The ceiling keeps a store from doubling every price and beyond.
       expect(Validators.profitPercentage('90'), isNotNull);
       expect(Validators.profitPercentage('100'), isNotNull);
       expect(Validators.profitPercentage('150'), isNotNull);

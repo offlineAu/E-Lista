@@ -1,13 +1,42 @@
 import 'dart:async';
 
-import 'package:firebase_auth/firebase_auth.dart' show User;
+import 'package:firebase_auth/firebase_auth.dart'
+    show FirebaseAuthException, User;
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:meta/meta.dart';
 
+import '../../../core/errors/app_failure.dart';
 import '../../../core/providers/firebase_providers.dart';
 import '../../../models/user_profile.dart';
 import '../../../repositories/user_repository.dart';
 import '../../../services/auth_service.dart';
+
+/// Auth error codes meaning the remembered guest session itself is gone — not that the new
+/// email or password is wrong. A device can hold onto a guest sign-in whose account the
+/// backend no longer recognises (wiped local emulator data, an expired or pruned anonymous
+/// account); linking to it fails for a reason the person creating an account had no part in
+/// and cannot fix by retyping anything.
+const _staleGuestSessionCodes = {
+  'user-token-expired',
+  'invalid-user-token',
+  'user-not-found',
+};
+
+/// Identity Toolkit's own error codes for a dead refresh token. The Android SDK often
+/// cannot classify these into one of its own [FirebaseAuthException] codes, so it reports
+/// the whole thing as `unknown` and leaves the real reason sitting inside the message
+/// instead — this is what that looks like when it happens.
+const _staleGuestSessionMessages = ['INVALID_REFRESH_TOKEN', 'TOKEN_EXPIRED'];
+
+bool _isStaleGuestSession(AppFailure failure) {
+  if (_staleGuestSessionCodes.contains(failure.code)) return true;
+  final cause = failure.cause;
+  if (cause is! FirebaseAuthException) return false;
+  final message = cause.message;
+  if (message == null) return false;
+  return _staleGuestSessionMessages.any(message.contains);
+}
 
 final authServiceProvider = Provider<AuthService>((ref) {
   return FirebaseAuthService(ref.watch(firebaseAuthProvider));
@@ -42,6 +71,8 @@ class AuthSession {
   final bool isAnonymous;
 
   bool get isOwner => role.isOwner;
+
+  bool get isCashier => role.isCashier;
 
   /// True for both guests and registered shoppers.
   bool get isCustomer => role.isCustomer;
@@ -81,17 +112,66 @@ final authSessionProvider = StreamProvider<AuthSession?>((ref) async* {
       yield null;
       continue;
     }
-    yield await _buildSession(auth, users, user);
+    try {
+      yield await _buildSessionWithRetry(auth, users, user);
+    } catch (error) {
+      // However generous the retry budget below, treat it as not necessarily enough:
+      // a session that still fails to build must not end this stream for the rest of the
+      // app run — no future sign-in would ever get a chance to rebuild it, which is a far
+      // worse outcome than silently keeping whatever session already existed and letting
+      // the next auth change (or a manual retry) try again.
+      debugPrint(
+        'e_lista: giving up building the session for ${user.uid} — cause=$error',
+      );
+    }
   }
 });
+
+/// Retry delays for a transient permission-denied right after a sign-in/sign-out swap.
+///
+/// Firestore's client can treat requests as entirely unauthenticated for a brief window
+/// right after Firebase Auth swaps the signed-in user — not a wrong role, but no credential
+/// attached yet at all — so even reading your own document can be refused for a moment. On
+/// the local emulator this window is imperceptible; over a real network to a real project it
+/// can run past a second, which is why this budget is generous rather than merely brief. A
+/// genuine permission problem (an account that actually lacks access) still surfaces once
+/// these run out.
+const _staleCredentialRetryDelays = [
+  Duration(milliseconds: 400),
+  Duration(milliseconds: 800),
+  Duration(milliseconds: 1500),
+  Duration(seconds: 3),
+  Duration(seconds: 5),
+];
+
+Future<AuthSession> _buildSessionWithRetry(
+  AuthService auth,
+  UserRepository users,
+  User user,
+) async {
+  for (final delay in _staleCredentialRetryDelays) {
+    try {
+      return await _buildSession(auth, users, user);
+    } on AppFailure catch (failure) {
+      if (failure.code != 'permission-denied') rethrow;
+      await Future<void>.delayed(delay);
+    }
+  }
+  return _buildSession(auth, users, user);
+}
 
 Future<AuthSession> _buildSession(
   AuthService auth,
   UserRepository users,
   User user,
 ) async {
-  // The claim is the authority; the document is a mirror the UI reads.
-  final role = await auth.resolveRole(user);
+  // The claim is the authority; the document is a mirror the UI reads. A cached ID token
+  // can be up to an hour stale, so a role change made moments ago — granting or revoking
+  // ownership — would otherwise not show up until that cache happened to expire on its
+  // own. Forcing a refresh here, on every session rebuild, is what makes "you are now the
+  // owner" true the moment it is said rather than eventually.
+  final role = await auth.resolveRole(user, forceRefresh: true);
+  debugPrint('e_lista: resolved role for ${user.uid} = $role');
   final profile = await users.ensureProfile(user, knownRole: role);
   return AuthSession(
     uid: user.uid,
@@ -114,6 +194,13 @@ final currentSessionProvider = Provider<AuthSession?>((ref) {
 /// rules do that, and they read the same claim rather than trusting this.
 final isOwnerProvider = Provider<bool>((ref) {
   return ref.watch(currentSessionProvider)?.isOwner ?? false;
+});
+
+/// Whether the current user is a cashier — staff, but restricted: can process orders and
+/// record stock movements, not prices, costs, settings or other staff. Same caveat as
+/// [isOwnerProvider]: this is a UI convenience, not the security boundary.
+final isCashierProvider = Provider<bool>((ref) {
+  return ref.watch(currentSessionProvider)?.isCashier ?? false;
 });
 
 /// Whether the current user is browsing as a guest.
@@ -164,18 +251,24 @@ class AuthController extends StateNotifier<AsyncValue<void>> {
 
     return _run(() async {
       if (shouldLink) {
-        await _auth.linkGuestToEmail(
-          email: email,
-          password: password,
-          displayName: displayName,
-        );
-      } else {
-        await _auth.registerWithEmail(
-          email: email,
-          password: password,
-          displayName: displayName,
-        );
+        try {
+          await _auth.linkGuestToEmail(
+            email: email,
+            password: password,
+            displayName: displayName,
+          );
+          return;
+        } on AppFailure catch (failure) {
+          if (!_isStaleGuestSession(failure)) rethrow;
+          // The remembered guest never existed on the backend — nothing to keep. Register
+          // fresh instead of surfacing a failure the person can do nothing about.
+        }
       }
+      await _auth.registerWithEmail(
+        email: email,
+        password: password,
+        displayName: displayName,
+      );
     });
   }
 

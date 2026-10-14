@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/pricing/domain/gcash_fee_schedule.dart';
+import '../../models/gcash_qr_settings.dart';
 import '../../models/pricing_settings.dart';
 import '../../repositories/cart_repository.dart';
 import '../../repositories/category_repository.dart';
@@ -9,6 +10,7 @@ import '../../repositories/order_repository.dart';
 import '../../repositories/product_repository.dart';
 import '../../repositories/sales_repository.dart';
 import '../../repositories/settings_repository.dart';
+import '../../services/gcash_qr_image_service.dart';
 import '../../services/product_image_service.dart';
 import '../../services/store_functions_service.dart';
 import 'firebase_providers.dart';
@@ -60,6 +62,11 @@ final productImageServiceProvider = Provider<ProductImageService>((ref) {
   return FirebaseProductImageService(ref.watch(firebaseStorageProvider));
 });
 
+/// Choosing and uploading the store's GCash QR code image.
+final gcashQrImageServiceProvider = Provider<GcashQrImageService>((ref) {
+  return FirebaseGcashQrImageService(ref.watch(firebaseStorageProvider));
+});
+
 /// The GCash convenience fee table.
 ///
 /// Watched app-wide rather than fetched per checkout: the fee has to be shown in the cart,
@@ -73,4 +80,10 @@ final gcashFeeScheduleProvider = StreamProvider<GcashFeeSchedule>((ref) {
 /// customer, which is why no customer screen watches it.
 final pricingSettingsProvider = StreamProvider<PricingSettings>((ref) {
   return ref.watch(settingsRepositoryProvider).watchPricingSettings();
+});
+
+/// The store's GCash QR code, shown at checkout when GCash is selected. World-readable,
+/// same reason as the fee table.
+final gcashQrProvider = StreamProvider<GcashQrSettings>((ref) {
+  return ref.watch(settingsRepositoryProvider).watchGcashQr();
 });

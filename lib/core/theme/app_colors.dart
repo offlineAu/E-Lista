@@ -2,56 +2,62 @@ import 'package:flutter/material.dart';
 
 /// The E-Lista palette.
 ///
-/// A friendly modern Filipino retail look: deep green as the anchor, warm yellow and
-/// orange for emphasis, on a soft cream ground. It should read as a neighbourhood store
-/// that takes itself seriously — warm, but not childish.
+/// A modern, friendly retail look: a deepened rose as the anchor (buttons, prices, the
+/// primary action), a soft violet as the second accent, and a warmer pink as a third,
+/// distinct-from-primary tone for badges and callouts — all drawn from one soft-pink family
+/// on a near-white blush ground. The five original reference swatches (`#FDE4F2` through
+/// `#E68BBE`) are pastel by nature, so they live on here as containers and tints; the raw
+/// brand colors below are deepened just enough to carry white text accessibly.
 ///
 /// Every pairing used for text in `AppTheme` clears WCAG AA (4.5:1 for body text, 3:1 for
-/// large text and icons). Where a colour is too light to carry white text — warm yellow
-/// especially — the theme puts [onWarmYellow] charcoal on it instead of white.
+/// large text and icons).
 abstract final class AppColors {
   // ---------------------------------------------------------------- brand
 
-  /// Primary. Deep green — app bars, primary buttons, prices.
-  static const Color deepGreen = Color(0xFF1B5E3F);
-  static const Color deepGreenDark = Color(0xFF10402A);
-  static const Color deepGreenLight = Color(0xFF2E7D5A);
+  /// Primary. Deepened rose — app bars, primary buttons, prices.
+  static const Color primaryRose = Color(0xFFC93E82);
+  static const Color primaryRoseDark = Color(0xFFA32E68);
 
-  /// Container tint for primary surfaces (selected chips, subtle highlights).
-  static const Color greenContainer = Color(0xFFD5E9DE);
-  static const Color onGreenContainer = Color(0xFF0B2E1E);
+  /// Container tint for primary surfaces (selected chips, subtle highlights) — one of the
+  /// original sampled swatches.
+  static const Color primaryRoseContainer = Color(0xFFF9CEE7);
+  static const Color onPrimaryRoseContainer = Color(0xFF7A2354);
 
-  /// Secondary. Warm yellow — highlights, badges, the GCash price accent.
-  static const Color warmYellow = Color(0xFFF2B705);
-  static const Color warmYellowContainer = Color(0xFFFDF0C9);
-  static const Color onWarmYellow = Color(0xFF3A2E00);
+  /// Secondary. Soft violet — the one deliberately "tech" note in an otherwise warm
+  /// palette; charts' second series, secondary actions.
+  static const Color accentViolet = Color(0xFF7C5CFC);
+  static const Color accentVioletContainer = Color(0xFFEEE8FF);
+  static const Color onAccentVioletContainer = Color(0xFF4A34A8);
 
-  /// Accent. Orange — calls to action that must not be confused with the primary action,
-  /// and the "add to cart" affordance.
-  static const Color orange = Color(0xFFE2681C);
-  static const Color orangeContainer = Color(0xFFFBE0CE);
-  static const Color onOrangeContainer = Color(0xFF4A1D00);
+  /// Tertiary. A warmer, lighter pink — calls to action that must not be confused with the
+  /// primary action, and badge/highlight accents.
+  static const Color tertiaryPink = Color(0xFFE68BBE);
+  static const Color tertiaryPinkContainer = Color(0xFFFDE4F2);
+  static const Color onTertiaryPinkContainer = Color(0xFF8A3D63);
 
   // ------------------------------------------------------------- neutrals
 
-  /// Soft cream page background.
-  static const Color cream = Color(0xFFFBF7EF);
+  /// Soft near-white, warm-pink-tinted page background.
+  static const Color blush = Color(0xFFFFFBFD);
 
-  /// Cards and sheets sit slightly above the cream ground.
-  static const Color surface = Color(0xFFFFFDF8);
-  static const Color surfaceMuted = Color(0xFFF2EDE3);
+  /// Cards and sheets sit slightly above the blush ground.
+  static const Color surface = Color(0xFFFFFFFF);
+  static const Color surfaceMuted = Color(0xFFFDE4F2);
 
-  /// Dark charcoal body text.
-  static const Color charcoal = Color(0xFF23262B);
+  /// Dark plum body text.
+  static const Color plum = Color(0xFF3D1228);
 
-  /// Secondary text: labels, captions, metadata. 4.6:1 on [surface].
-  static const Color charcoalMuted = Color(0xFF5C6169);
+  /// Secondary text: labels, captions, metadata.
+  static const Color plumMuted = Color(0xFF6B5361);
 
   /// Hairlines and dividers.
-  static const Color outline = Color(0xFFD9D2C5);
-  static const Color outlineStrong = Color(0xFFB9B0A0);
+  static const Color outline = Color(0xFFF3D6E7);
+  static const Color outlineStrong = Color(0xFFE0AFC9);
 
   // --------------------------------------------------------------- status
+  //
+  // Conventional regardless of brand palette — a warning is amber, an error is red, no
+  // matter what hue the rest of the app is wearing.
 
   static const Color success = Color(0xFF1F7A46);
   static const Color successContainer = Color(0xFFD8F0E1);
@@ -72,17 +78,18 @@ abstract final class AppColors {
   // ------------------------------------------------------- dark surfaces
   //
   // The owner dashboard is used in a dim store as often as a bright one, so the app
-  // supports dark mode throughout rather than forcing the light palette.
+  // supports dark mode throughout rather than forcing the light palette. Dark surfaces keep
+  // a warm plum tint rather than going neutral-gray, so dark mode still reads as this app.
 
-  static const Color darkBackground = Color(0xFF14171A);
-  static const Color darkSurface = Color(0xFF1C2024);
-  static const Color darkSurfaceMuted = Color(0xFF262B31);
-  static const Color darkOutline = Color(0xFF3B424A);
-  static const Color onDark = Color(0xFFEDEAE3);
-  static const Color onDarkMuted = Color(0xFFAFB5BD);
-  static const Color greenOnDark = Color(0xFF6FCE9C);
-  static const Color yellowOnDark = Color(0xFFF7CF57);
-  static const Color orangeOnDark = Color(0xFFF79B5E);
+  static const Color darkBackground = Color(0xFF1A1116);
+  static const Color darkSurface = Color(0xFF241820);
+  static const Color darkSurfaceMuted = Color(0xFF2E1E29);
+  static const Color darkOutline = Color(0xFF3A2732);
+  static const Color onDark = Color(0xFFF5E9F0);
+  static const Color onDarkMuted = Color(0xFFC7AFC0);
+  static const Color primaryRoseOnDark = Color(0xFFF2A8D2);
+  static const Color accentVioletOnDark = Color(0xFFB39DFF);
+  static const Color tertiaryPinkOnDark = Color(0xFFF7C2E0);
   static const Color successOnDark = Color(0xFF6FCE9C);
   static const Color warningOnDark = Color(0xFFEFB65A);
   static const Color dangerOnDark = Color(0xFFF2938C);
